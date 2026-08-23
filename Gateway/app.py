@@ -9,6 +9,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 
 from blockchain import client as blockchain_client
 from config import settings
@@ -176,6 +177,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Carbon Emission Gateway", lifespan=lifespan)
+
+# The React dashboard is served by Vite's dev server on a different port
+# (5173 by default), so the browser treats its fetch() calls to this
+# gateway as cross-origin and blocks them without these headers. The regex
+# matches any localhost port because Vite picks the next free one if 5173
+# is taken. WebSocket connections are not subject to CORS, so /ws works
+# with or without this - only the REST endpoints need it.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")

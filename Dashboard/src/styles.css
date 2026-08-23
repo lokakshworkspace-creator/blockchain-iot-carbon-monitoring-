@@ -1,0 +1,486 @@
+/* Dashboard theme. Single stylesheet with CSS custom properties - kept
+   deliberately simple (no CSS framework, no CSS-in-JS) since this is a
+   demonstrable prototype and the styling should never be the hard part. */
+
+:root {
+  --bg: #0f1420;
+  --bg-panel: #171d2c;
+  --bg-panel-alt: #1d2436;
+  --border: #2a3348;
+  --text: #e6eaf3;
+  --text-dim: #93a0bb;
+  --text-faint: #66739180;
+
+  --accent: #4f9dff;
+  --info: #4f9dff;
+  --ok: #35d07f;
+  --warning: #f5b23a;
+  --critical: #ff5f6d;
+
+  --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  --sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- Layout --- */
+
+.app {
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 20px 14px;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--accent), #7b5cff);
+  font-weight: 700;
+  font-size: 13px;
+  color: #fff;
+}
+
+.brand-title {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.brand-subtitle {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-link {
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: var(--text-dim);
+  text-decoration: none;
+  font-weight: 500;
+  transition: background 0.12s, color 0.12s;
+}
+
+.nav-link:hover {
+  background: var(--bg-panel-alt);
+  color: var(--text);
+}
+
+.nav-link.active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.sidebar-footer {
+  margin-top: auto;
+}
+
+.content {
+  padding: 28px 32px;
+  overflow-x: hidden;
+}
+
+.page h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.page-subtitle {
+  margin: 0 0 24px;
+  color: var(--text-dim);
+}
+
+.placeholder {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* --- Connection pill --- */
+
+.conn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.conn-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.conn-connected .conn-dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+
+.conn-connecting .conn-dot {
+  background: var(--warning);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.conn-disconnected .conn-dot {
+  background: var(--critical);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* --- Sections & cards --- */
+
+.section {
+  margin-bottom: 28px;
+}
+
+.section h2 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.section-head h2 {
+  margin-bottom: 12px;
+}
+
+.card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.empty {
+  padding: 24px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.empty code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg-panel-alt);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--text);
+}
+
+.error-text {
+  color: var(--critical);
+}
+
+.dim {
+  color: var(--text-dim);
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* --- Health grid --- */
+
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.health-card {
+  padding: 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-dim);
+  border-radius: 10px;
+  min-width: 0;
+}
+
+.health-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.health-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.health-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.health-state {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  margin-bottom: 4px;
+}
+
+/* Two lines rather than a single ellipsised one: these details carry the
+   actual diagnosis ("esp32-01 has not reported in over 30s"), which is
+   exactly the part worth reading when a tile is not green. */
+.health-detail {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.6em;
+}
+
+.state-ok {
+  border-left-color: var(--ok);
+}
+.state-ok .health-dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+.state-ok .health-state {
+  color: var(--ok);
+}
+
+.state-warn {
+  border-left-color: var(--warning);
+}
+.state-warn .health-dot {
+  background: var(--warning);
+}
+.state-warn .health-state {
+  color: var(--warning);
+}
+
+.state-error {
+  border-left-color: var(--critical);
+}
+.state-error .health-dot {
+  background: var(--critical);
+}
+.state-error .health-state {
+  color: var(--critical);
+}
+
+.state-unknown .health-state {
+  color: var(--text-dim);
+}
+
+/* --- Table --- */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  background: var(--bg-panel-alt);
+  border-bottom: 1px solid var(--border);
+}
+
+.table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* --- Badges --- */
+
+.badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.badge-INFO {
+  background: color-mix(in srgb, var(--info) 18%, transparent);
+  color: var(--info);
+}
+
+.badge-WARNING {
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+  color: var(--warning);
+}
+
+.badge-CRITICAL {
+  background: color-mix(in srgb, var(--critical) 20%, transparent);
+  color: var(--critical);
+}
+
+.badge-online {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+
+.badge-offline {
+  background: color-mix(in srgb, var(--critical) 18%, transparent);
+  color: var(--critical);
+}
+
+/* --- Filter chips --- */
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.chip {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.chip:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+.chip.active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: transparent;
+  color: var(--accent);
+}
+
+.count {
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+/* --- Event feed --- */
+
+.feed {
+  max-height: 460px;
+  overflow-y: auto;
+}
+
+.feed-row {
+  display: grid;
+  grid-template-columns: 96px 68px 180px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  border-left: 2px solid transparent;
+  font-size: 12.5px;
+}
+
+.feed-row:last-child {
+  border-bottom: none;
+}
+
+.feed-row.sev-WARNING {
+  border-left-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 5%, transparent);
+}
+
+.feed-row.sev-CRITICAL {
+  border-left-color: var(--critical);
+  background: color-mix(in srgb, var(--critical) 7%, transparent);
+}
+
+.feed-time {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.feed-type {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+.feed-message {
+  color: var(--text-dim);
+  word-break: break-word;
+}
+
+@media (max-width: 900px) {
+  .feed-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
