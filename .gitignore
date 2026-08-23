@@ -42,6 +42,9 @@ Thumbs.db
 .idea/
 *.swp
 
+# --- Claude Code local tooling state ---
+.claude/
+
 # --- Logs ---
 *.log
 logs/

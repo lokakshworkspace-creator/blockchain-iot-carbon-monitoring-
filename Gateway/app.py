@@ -18,6 +18,7 @@ from events import EventType, Severity, build_event
 from hashing import generate_hash
 from mqtt_client import MQTTBridge
 from threshold import engine as threshold_engine
+from verification import verify_record
 from websocket_manager import manager
 
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -189,6 +190,11 @@ def health() -> dict:
 @app.get("/devices/status")
 def devices_status() -> list[dict]:
     return device_status_tracker.snapshot()
+
+
+@app.post("/verify/{record_id}")
+async def verify(record_id: str) -> dict:
+    return await verify_record(record_id)
 
 
 @app.websocket("/ws")

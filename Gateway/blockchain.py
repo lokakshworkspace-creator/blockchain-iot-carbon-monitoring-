@@ -61,7 +61,10 @@ class BlockchainClient:
             contract_address = Web3.to_checksum_address(settings.contract_address)
             self._contract = self._w3.eth.contract(address=contract_address, abi=abi)
             self._account = Account.from_key(settings.blockchain_private_key)
-            self._nonce = self._w3.eth.get_transaction_count(self._account.address)
+            # "pending" (not the default "latest") so a restart never
+            # collides with a transaction that's already broadcast but not
+            # yet mined - "latest" would return a stale, already-used nonce.
+            self._nonce = self._w3.eth.get_transaction_count(self._account.address, "pending")
             self._ready = True
             logger.info(
                 "Blockchain client ready: account=%s contract=%s starting nonce=%s",
@@ -107,7 +110,10 @@ class BlockchainClient:
         )
         signed = self._account.sign_transaction(tx)
         tx_hash = self._w3.eth.send_raw_transaction(signed.raw_transaction)
-        receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash)
+        # Sepolia confirmation times observed in practice range well past
+        # the 120s default (one took ~117s, another exceeded it outright) -
+        # 300s gives real headroom without the call blocking forever.
+        receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
 
         events = self._contract.events.HashStored().process_receipt(receipt)
         record_id = events[0]["args"]["recordId"] if events else None
@@ -122,6 +128,20 @@ class BlockchainClient:
             "status": receipt["status"],
             "record_id": record_id,
         }
+
+    async def get_hash(self, record_id: int) -> str:
+        """Read-only call to CarbonMonitor.getHash(record_id) - no gas, no
+        signing, no nonce involved. Returns whatever hex format the
+        installed web3.py version's bytes.hex() produces; callers that
+        compare this against another hash (verification.py) must normalize
+        both sides rather than assume a particular 0x-prefix convention."""
+        if not self._ready:
+            raise RuntimeError("Blockchain client is not ready (see startup logs)")
+        return await asyncio.to_thread(self._get_hash_sync, record_id)
+
+    def _get_hash_sync(self, record_id: int) -> str:
+        hash_bytes = self._contract.functions.getHash(record_id).call()
+        return hash_bytes.hex()
 
 
 client = BlockchainClient()

@@ -37,7 +37,7 @@ class _FakeEth:
         self.sent_nonces.append(raw_transaction["nonce"])
         return _FakeTxHash(b"\x11" * 32)
 
-    def wait_for_transaction_receipt(self, tx_hash) -> dict:
+    def wait_for_transaction_receipt(self, tx_hash, timeout=120) -> dict:
         return {"blockNumber": 123, "status": 1}
 
 
