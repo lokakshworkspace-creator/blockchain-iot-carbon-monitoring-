@@ -1,7 +1,7 @@
 """
 FastAPI entry point for the gateway. The MQTT bridge, threshold engine,
-device-status tracking, Pipeline B (hash -> MongoDB), and WebSocket alert
-delivery are all wired up here.
+device-status tracking, Pipeline B (hash -> MongoDB -> Sepolia), and
+WebSocket alert delivery are all wired up here.
 """
 
 import asyncio
@@ -10,8 +10,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
+from blockchain import client as blockchain_client
 from config import settings
-from database import insert_sensor_record
+from database import insert_sensor_record, update_blockchain_info
 from device_status import tracker as device_status_tracker
 from events import EventType, Severity, build_event
 from hashing import generate_hash
@@ -63,10 +64,10 @@ async def _consume_mqtt_messages() -> None:
 
 async def _process_pipeline_b(message: dict) -> None:
     device_id = message.get("device_id")
-    try:
-        co2 = message.get("co2")
-        sensor_timestamp = message.get("sensor_timestamp")
+    co2 = message.get("co2")
+    sensor_timestamp = message.get("sensor_timestamp")
 
+    try:
         hash_value = generate_hash(device_id, co2, sensor_timestamp)
         hash_event = build_event(
             EventType.HASH_GENERATED,
@@ -94,7 +95,7 @@ async def _process_pipeline_b(message: dict) -> None:
         # Covers a hashing or a DB failure alike (DB is by far the likelier
         # one in practice) - Pipeline A above has already run and broadcast
         # its own alert by this point regardless of what happens here.
-        logger.exception("Pipeline B failed to process message: %r", message)
+        logger.exception("Pipeline B (hash/DB) failed to process message: %r", message)
         error_event = build_event(
             EventType.DATABASE_ERROR,
             message=f"{device_id} Pipeline B failed: {exc}",
@@ -102,6 +103,43 @@ async def _process_pipeline_b(message: dict) -> None:
             device_id=device_id,
         )
         await manager.broadcast(error_event.to_dict())
+        return  # nothing to anchor on-chain without a hash and a stored record
+
+    # Blockchain anchoring gets its own try/except so a chain-side failure
+    # (e.g. RPC down, wallet not funded) is reported as BLOCKCHAIN_FAILED
+    # rather than clobbering the DATABASE_STORED success that already
+    # happened above.
+    try:
+        submitted_event = build_event(
+            EventType.BLOCKCHAIN_SUBMITTED,
+            message=f"{device_id} hash submitted to Sepolia",
+            severity=Severity.INFO,
+            device_id=device_id,
+        )
+        await manager.broadcast(submitted_event.to_dict())
+
+        tx_result = await blockchain_client.store_hash(hash_value)
+        await update_blockchain_info(record_id, tx_result["tx_hash"], tx_result["record_id"])
+
+        confirmed_event = build_event(
+            EventType.BLOCKCHAIN_CONFIRMED,
+            message=(
+                f"{device_id} hash anchored on-chain: tx {tx_result['tx_hash']}, "
+                f"record #{tx_result['record_id']}, block {tx_result['block_number']}"
+            ),
+            severity=Severity.INFO,
+            device_id=device_id,
+        )
+        await manager.broadcast(confirmed_event.to_dict())
+    except Exception as exc:
+        logger.exception("Pipeline B (blockchain) failed to process message: %r", message)
+        failed_event = build_event(
+            EventType.BLOCKCHAIN_FAILED,
+            message=f"{device_id} blockchain submission failed: {exc}",
+            severity=Severity.CRITICAL,
+            device_id=device_id,
+        )
+        await manager.broadcast(failed_event.to_dict())
 
 
 _pipeline_b_tasks: set[asyncio.Task] = set()
@@ -123,6 +161,7 @@ async def _check_device_timeouts_periodically() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     mqtt_bridge.start()
+    blockchain_client.start()  # tolerant of a not-yet-configured wallet/contract - see blockchain.py
     consumer_task = asyncio.create_task(_consume_mqtt_messages())
     device_timeout_task = asyncio.create_task(_check_device_timeouts_periodically())
     try:
