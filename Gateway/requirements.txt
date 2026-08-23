@@ -1,0 +1,8 @@
+# Phase 1 dependencies (real-time alert pipeline, simulated).
+# Phase 2 will add: motor, web3, apscheduler.
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+python-dotenv==1.2.3
+paho-mqtt==2.1.0
+pydantic==2.13.4
+websockets==17.0.1
