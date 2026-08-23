@@ -8,12 +8,12 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from blockchain import client as blockchain_client
 from config import settings
-from database import insert_sensor_record, update_blockchain_info
+from database import get_recent_records, insert_sensor_record, update_blockchain_info
 from device_status import tracker as device_status_tracker
 from events import EventType, Severity, build_event
 from hashing import generate_hash
@@ -31,6 +31,11 @@ logger = logging.getLogger(__name__)
 # scheduler.py may end up owning this loop too, but not yet).
 DEVICE_TIMEOUT_CHECK_INTERVAL_SECONDS = 2.0
 
+# GET /records paging. The cap exists so a stray ?limit=100000 can't pull
+# the whole collection into memory and stall the event loop.
+DEFAULT_RECORDS_LIMIT = 20
+MAX_RECORDS_LIMIT = 200
+
 # Pipeline A's entry point: MQTTBridge.on_message pushes here from paho's
 # background thread; _consume_mqtt_messages below drains it on the main
 # event loop, updates device-status, runs each reading through the
@@ -45,6 +50,22 @@ async def _consume_mqtt_messages() -> None:
 
         try:
             device_id = message.get("device_id")
+
+            # Pure telemetry, emitted for every message that passed
+            # mqtt_client.py's validation and before either pipeline does
+            # anything with it. The dashboard's live chart needs a data
+            # point per reading, whereas threshold events fire only on
+            # state transitions. It deliberately reads nothing from and
+            # writes nothing to threshold.py, so it cannot perturb the
+            # cooldown/hysteresis state machine.
+            reading_event = build_event(
+                EventType.SENSOR_READING,
+                message=f"{device_id} reported {message.get('co2')} ppm",
+                severity=Severity.INFO,
+                device_id=device_id,
+                data={"co2": message.get("co2")},
+            )
+            await manager.broadcast(reading_event.to_dict())
 
             online_event = device_status_tracker.record_message(device_id)
             if online_event is not None:
@@ -198,12 +219,25 @@ def health() -> dict:
         "status": "ok",
         "mqtt_broker": f"{settings.mqtt_broker_host}:{settings.mqtt_broker_port}",
         "mqtt_topic": settings.mqtt_topic,
+        # Published so the dashboard's gauge and chart reference lines use
+        # the gateway's actual configured thresholds rather than hardcoding
+        # a second copy of them in JavaScript that could drift from .env.
+        "co2_warning_threshold": settings.co2_warning_threshold,
+        "co2_critical_threshold": settings.co2_critical_threshold,
     }
 
 
 @app.get("/devices/status")
 def devices_status() -> list[dict]:
     return device_status_tracker.snapshot()
+
+
+@app.get("/records")
+async def records(limit: int = Query(DEFAULT_RECORDS_LIMIT, ge=1, le=MAX_RECORDS_LIMIT)) -> list[dict]:
+    """Recent readings, newest first. Backs both the Verification page
+    (pick a record to verify) and Blockchain Logs (anchoring status per
+    record) - the two need the same rows, so they share one endpoint."""
+    return await get_recent_records(limit)
 
 
 @app.post("/verify/{record_id}")

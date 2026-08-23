@@ -33,6 +33,27 @@ def test_build_event_device_id_defaults_to_none():
     assert event.to_dict()["device_id"] is None
 
 
+def test_event_without_data_omits_the_key_entirely():
+    # The `data` field was added after every other event type already
+    # existed; those events must serialise exactly as they did before
+    # rather than gaining a "data": null key.
+    event = build_event(EventType.TEST_MESSAGE, message="hello", severity=Severity.INFO)
+    assert event.data is None
+    assert "data" not in event.to_dict()
+
+
+def test_sensor_reading_carries_co2_in_its_data_payload():
+    event = build_event(
+        EventType.SENSOR_READING,
+        message="esp32-01 reported 812.3 ppm",
+        severity=Severity.INFO,
+        device_id="esp32-01",
+        data={"co2": 812.3},
+    )
+
+    assert event.to_dict()["data"] == {"co2": 812.3}
+
+
 def test_pipeline_b_event_types_are_defined():
     # Locks in the Step 3 (Phase 2) additions so the System Monitor feed has
     # full coverage once database.py/blockchain.py/verification.py emit them.

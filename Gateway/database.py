@@ -52,6 +52,38 @@ async def get_sensor_record(record_id: str) -> dict[str, Any] | None:
     return document
 
 
+# The subset of fields the dashboard's record list needs. `hash` and
+# gateway_received_timestamp are deliberately left out: the list view never
+# shows them, and verification.py re-reads the full document by id anyway.
+_RECENT_RECORDS_PROJECTION = {
+    "device_id": 1,
+    "co2": 1,
+    "sensor_timestamp": 1,
+    "verification_status": 1,
+    "blockchain_record_id": 1,
+    "blockchain_tx_hash": 1,
+}
+
+
+async def get_recent_records(limit: int) -> list[dict[str, Any]]:
+    """Most recent sensor readings, newest first, for the dashboard's
+    Verification and Blockchain Logs pages.
+
+    Sorted by _id rather than sensor_timestamp: _id is monotonic in
+    insertion order and indexed by default, whereas sensor_timestamp comes
+    from the device's own clock - which is neither guaranteed monotonic
+    across devices nor indexed here.
+    """
+    cursor = _collection.find({}, _RECENT_RECORDS_PROJECTION).sort("_id", -1).limit(limit)
+    records = []
+    async for document in cursor:
+        # Exposed as "id" (a str) rather than a raw ObjectId, matching what
+        # insert_sensor_record returns and what POST /verify/{id} expects.
+        document["id"] = str(document.pop("_id"))
+        records.append(document)
+    return records
+
+
 async def update_blockchain_info(record_id: str, tx_hash: str, blockchain_record_id: int) -> None:
     await _collection.update_one(
         {"_id": ObjectId(record_id)},
