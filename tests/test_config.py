@@ -21,6 +21,8 @@ REQUIRED_VARS = [
     "CO2_CRITICAL_THRESHOLD",
     "CO2_HYSTERESIS_READINGS",
     "DEVICE_TIMEOUT_SECONDS",
+    "MONGO_URI",
+    "MONGO_DB_NAME",
 ]
 OPTIONAL_VARS = ["GATEWAY_HOST", "GATEWAY_PORT", "LOG_LEVEL"]
 
@@ -55,6 +57,8 @@ def test_valid_env_loads_cleanly(tmp_path):
         CO2_CRITICAL_THRESHOLD=1500
         CO2_HYSTERESIS_READINGS=2
         DEVICE_TIMEOUT_SECONDS=45
+        MONGO_URI=mongodb://test-mongo:27017
+        MONGO_DB_NAME=test_db
         """,
     )
     load_dotenv(env_file, override=True)
@@ -68,6 +72,8 @@ def test_valid_env_loads_cleanly(tmp_path):
     assert result.co2_critical_threshold == 1500.0
     assert result.co2_hysteresis_readings == 2
     assert result.device_timeout_seconds == 45
+    assert result.mongo_uri == "mongodb://test-mongo:27017"
+    assert result.mongo_db_name == "test_db"
     # Optional vars fall back to their defaults when not set.
     assert result.gateway_host == "0.0.0.0"
     assert result.gateway_port == 8000

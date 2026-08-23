@@ -4,9 +4,10 @@ needs, and fails loudly (with every problem listed at once) if anything required
 is missing or malformed. Nothing else in this codebase should call os.environ /
 os.getenv directly - import `config` from here instead.
 
-Phase 1 only defines the variables needed for MQTT ingestion, threshold alerting,
-and device-status tracking. Phase 2 will extend this module with MongoDB and
-blockchain settings (MONGO_URI, SEPOLIA_RPC_URL, PRIVATE_KEY, CONTRACT_ADDRESS, ...).
+Phase 1 defined the variables needed for MQTT ingestion, threshold alerting,
+and device-status tracking. Phase 2 adds MongoDB settings (MONGO_URI,
+MONGO_DB_NAME); blockchain settings (SEPOLIA_RPC_URL, PRIVATE_KEY,
+CONTRACT_ADDRESS, ...) will follow once Web3 integration starts.
 """
 
 from __future__ import annotations
@@ -41,6 +42,10 @@ class Config:
 
     # --- Device status tracking ---
     device_timeout_seconds: int
+
+    # --- MongoDB (Pipeline B) ---
+    mongo_uri: str
+    mongo_db_name: str
 
     # --- Gateway HTTP/WebSocket server ---
     gateway_host: str
@@ -90,6 +95,8 @@ def load_config() -> Config:
         "CO2_CRITICAL_THRESHOLD",
         "CO2_HYSTERESIS_READINGS",
         "DEVICE_TIMEOUT_SECONDS",
+        "MONGO_URI",
+        "MONGO_DB_NAME",
     ]
     raw = {name: os.getenv(name) for name in required_names}
 
@@ -152,6 +159,8 @@ def load_config() -> Config:
         co2_critical_threshold=co2_critical_threshold,
         co2_hysteresis_readings=co2_hysteresis_readings,
         device_timeout_seconds=device_timeout_seconds,
+        mongo_uri=raw["MONGO_URI"],  # type: ignore[arg-type]
+        mongo_db_name=raw["MONGO_DB_NAME"],  # type: ignore[arg-type]
         gateway_host=gateway_host,
         gateway_port=gateway_port,
         log_level=log_level,

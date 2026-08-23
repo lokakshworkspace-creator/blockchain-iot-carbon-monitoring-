@@ -1,8 +1,12 @@
-# Phase 1 dependencies (real-time alert pipeline, simulated).
-# Phase 2 will add: motor, web3, apscheduler.
+# Phase 1: real-time alert pipeline, simulated.
 fastapi==0.141.1
 uvicorn[standard]==0.52.4
 python-dotenv==1.2.3
 paho-mqtt==2.1.0
 pydantic==2.13.4
 websockets==17.0.1
+
+# Phase 2: data integrity pipeline (hashing -> MongoDB -> blockchain).
+# web3 and apscheduler will be added when the Solidity/scheduler steps start.
+motor==3.7.1
+pymongo==4.17.0
