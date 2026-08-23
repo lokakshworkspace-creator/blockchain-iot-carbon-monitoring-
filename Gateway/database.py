@@ -84,6 +84,19 @@ async def get_recent_records(limit: int) -> list[dict[str, Any]]:
     return records
 
 
+async def count_records() -> dict[str, int]:
+    """Collection-level counts for the dashboard's Overview tiles.
+
+    count_documents() rather than fetching rows and counting them in the
+    browser: Overview only needs two integers, and pulling the collection
+    across the wire to derive them would get slower with every reading the
+    demo produces.
+    """
+    total = await _collection.count_documents({})
+    anchored = await _collection.count_documents({"blockchain_record_id": {"$ne": None}})
+    return {"total": total, "anchored": anchored}
+
+
 async def update_blockchain_info(record_id: str, tx_hash: str, blockchain_record_id: int) -> None:
     await _collection.update_one(
         {"_id": ObjectId(record_id)},

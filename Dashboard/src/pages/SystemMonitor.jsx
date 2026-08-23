@@ -4,59 +4,31 @@
  *
  * Three sections: derived component health, the device roster from
  * GET /devices/status, and the raw live event feed.
+ *
+ * The health inputs (events, socket status, devices, clock) all come from
+ * the same shared hooks Overview uses, so Overview's rollup is a
+ * reduction of exactly what is rendered here rather than a second
+ * opinion.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import DeviceTable from '../components/DeviceTable.jsx'
 import EventFeed from '../components/EventFeed.jsx'
 import HealthGrid from '../components/HealthGrid.jsx'
 import { useEventStream } from '../context/eventStreamContext.js'
+import { useDevices } from '../hooks/useDevices.js'
+import { useTick } from '../hooks/useTick.js'
 import { deriveHealth } from '../lib/health.js'
-import { getDeviceStatus } from '../services/api.js'
 
 const SEVERITIES = ['ALL', 'INFO', 'WARNING', 'CRITICAL']
 
-// Health tiles and "last seen" ages are time-dependent, so the page needs
-// to re-render on a clock as well as on new events - otherwise a system
-// that goes quiet keeps claiming it saw traffic "just now" indefinitely.
-const TICK_MS = 5000
-
 export default function SystemMonitor() {
   const { events, status } = useEventStream()
+  const { devices, error: deviceError } = useDevices()
+  const tick = useTick()
 
-  const [devices, setDevices] = useState([])
-  const [deviceError, setDeviceError] = useState(null)
   const [severityFilter, setSeverityFilter] = useState('ALL')
-  const [tick, setTick] = useState(0)
-
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), TICK_MS)
-    return () => clearInterval(id)
-  }, [])
-
-  // Refetch the roster whenever the gateway reports a liveness change, so
-  // the table tracks DEVICE_ONLINE/DEVICE_OFFLINE without polling hard.
-  const deviceEventCount = useMemo(
-    () => events.filter((e) => e.event_type === 'DEVICE_ONLINE' || e.event_type === 'DEVICE_OFFLINE').length,
-    [events],
-  )
-
-  useEffect(() => {
-    let cancelled = false
-    getDeviceStatus()
-      .then((data) => {
-        if (cancelled) return
-        setDevices(data)
-        setDeviceError(null)
-      })
-      .catch((err) => {
-        if (!cancelled) setDeviceError(err.message)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [deviceEventCount])
 
   const health = useMemo(
     () => deriveHealth(events, status, devices, Date.now()),

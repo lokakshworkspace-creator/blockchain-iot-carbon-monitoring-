@@ -101,12 +101,40 @@ async def _recent_records_listing() -> None:
         await database._collection.delete_many({"device_id": "test-device-recent"})
 
 
-def test_database_round_trip_and_recent_records():
+async def _record_counts() -> None:
+    # Asserted as deltas, not absolutes: this runs against the real local
+    # database, which legitimately holds readings from earlier demo runs.
+    before = await database.count_records()
+
+    record_id = await database.insert_sensor_record(
+        device_id="test-device-counts",
+        co2=500.0,
+        sensor_timestamp="2026-08-23T00:00:00+00:00",
+        gateway_received_timestamp="2026-08-23T00:00:00.500000+00:00",
+        hash_value="c" * 64,
+    )
+    try:
+        after_insert = await database.count_records()
+        assert after_insert["total"] == before["total"] + 1
+        # Not anchored yet - a fresh record has blockchain_record_id None.
+        assert after_insert["anchored"] == before["anchored"]
+
+        await database.update_blockchain_info(record_id, tx_hash="0xfeed", blockchain_record_id=99)
+
+        after_anchor = await database.count_records()
+        assert after_anchor["total"] == before["total"] + 1
+        assert after_anchor["anchored"] == before["anchored"] + 1
+    finally:
+        await database._collection.delete_many({"device_id": "test-device-counts"})
+
+
+def test_database_round_trip_recent_records_and_counts():
     async def _run():
         if not await _mongo_is_reachable():
             pytest.skip("MongoDB is not reachable locally; skipping database.py integration test")
 
         await _insert_retrieve_update_round_trip()
         await _recent_records_listing()
+        await _record_counts()
 
     asyncio.run(_run())

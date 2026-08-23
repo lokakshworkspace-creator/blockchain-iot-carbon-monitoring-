@@ -53,6 +53,33 @@ export function deriveHealth(events, socketStatus, devices, now = Date.now()) {
   ]
 }
 
+// Worst-first, so a rollup can pick the most serious state present.
+const STATE_SEVERITY = { error: 3, warn: 2, unknown: 1, ok: 0 }
+
+/**
+ * Collapses deriveHealth()'s five components into one overall state for
+ * the Overview page. Deliberately a reduction of exactly the same data
+ * System Monitor renders, rather than a second opinion about whether the
+ * system is healthy - if the glance view and the detail view could ever
+ * disagree, neither would be trustworthy.
+ */
+export function rollupHealth(components) {
+  let worst = components[0]
+  for (const component of components) {
+    if (STATE_SEVERITY[component.state] > STATE_SEVERITY[worst.state]) worst = component
+  }
+
+  const counts = { ok: 0, warn: 0, error: 0, unknown: 0 }
+  for (const component of components) counts[component.state] += 1
+
+  const summary =
+    worst.state === 'ok'
+      ? 'All components healthy'
+      : `${worst.name}: ${worst.detail}`
+
+  return { state: worst.state, summary, counts, worst }
+}
+
 function gateway(socketStatus) {
   // The only directly-observed component: if the WebSocket is open, the
   // FastAPI process is up and its event loop is running, by definition.

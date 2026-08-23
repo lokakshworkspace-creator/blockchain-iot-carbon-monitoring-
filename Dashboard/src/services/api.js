@@ -44,6 +44,16 @@ export function getDeviceStatus() {
   return _request('/devices/status')
 }
 
+/** GET /records?limit=N -> [{ id, device_id, co2, sensor_timestamp, ... }, ...] newest first */
+export function getRecords(limit = 20) {
+  return _request(`/records?limit=${encodeURIComponent(limit)}`)
+}
+
+/** GET /records/stats -> { total, anchored } */
+export function getRecordStats() {
+  return _request('/records/stats')
+}
+
 /**
  * POST /verify/{id} -> { status, stored_hash, onchain_hash, recomputed_hash, ... }
  * status is one of Verified | Tampered | NotAnchored | NotFound | Error.

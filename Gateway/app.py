@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from blockchain import client as blockchain_client
 from config import settings
-from database import get_recent_records, insert_sensor_record, update_blockchain_info
+from database import count_records, get_recent_records, insert_sensor_record, update_blockchain_info
 from device_status import tracker as device_status_tracker
 from events import EventType, Severity, build_event
 from hashing import generate_hash
@@ -238,6 +238,15 @@ async def records(limit: int = Query(DEFAULT_RECORDS_LIMIT, ge=1, le=MAX_RECORDS
     (pick a record to verify) and Blockchain Logs (anchoring status per
     record) - the two need the same rows, so they share one endpoint."""
     return await get_recent_records(limit)
+
+
+@app.get("/records/stats")
+async def records_stats() -> dict:
+    """Total readings stored and how many are anchored on-chain, for the
+    Overview page's counts. Declared before nothing else claims /records/*,
+    and kept separate from GET /records so a glance view never pays for
+    transferring rows it won't display."""
+    return await count_records()
 
 
 @app.post("/verify/{record_id}")
