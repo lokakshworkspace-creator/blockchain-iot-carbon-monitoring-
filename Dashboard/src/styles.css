@@ -840,6 +840,26 @@ body {
   color: var(--critical);
 }
 
+.badge-pending {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
+}
+
+/* Pending rows read as "still in flight", not "broken" or "omitted" -
+   the whole point of this page is showing anchored and pending together. */
+.row-pending {
+  opacity: 0.72;
+}
+
+.tx-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.tx-link:hover {
+  text-decoration: underline;
+}
+
 /* --- Filter chips --- */
 
 .filters {
