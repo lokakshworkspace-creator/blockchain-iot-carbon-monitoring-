@@ -95,24 +95,44 @@ class BlockchainClient:
         if len(hash_bytes) != 32:
             raise ValueError(f"expected a 32-byte (64-hex-char) hash, got {len(hash_bytes)} bytes")
 
+        # The nonce must only advance once send_raw_transaction has
+        # actually returned successfully - i.e. once the node has accepted
+        # the transaction. A Phase 4 soak test proved this matters: under
+        # RPC rate-limiting, gas_price/chain_id/send_raw_transaction can
+        # all fail (network errors, 429s) *before* anything reaches the
+        # node. If the nonce had already been advanced at that point (as
+        # it was here previously), that nonce is burned forever - no
+        # transaction ever used it, but Ethereum requires strictly
+        # sequential nonces per account, so every later transaction from
+        # this wallet would be stuck behind the gap. Holding the lock
+        # across the whole build/sign/send sequence (not just the
+        # increment) serializes that fast, sub-second commit step across
+        # concurrent Pipeline B calls, which is what actually keeps nonce
+        # assignment race-free; the slow, multi-minute receipt wait below
+        # deliberately happens outside the lock so concurrent calls can
+        # wait on their own confirmations in parallel.
         with self._nonce_lock:
             nonce = self._nonce
+            tx = self._contract.functions.storeHash(hash_bytes).build_transaction(
+                {
+                    "from": self._account.address,
+                    "nonce": nonce,
+                    "gas": 200_000,  # generous fixed limit for a single SSTORE; no dynamic estimation needed
+                    "gasPrice": self._w3.eth.gas_price,
+                    "chainId": self._w3.eth.chain_id,
+                }
+            )
+            signed = self._account.sign_transaction(tx)
+            tx_hash = self._w3.eth.send_raw_transaction(signed.raw_transaction)
             self._nonce += 1
 
-        tx = self._contract.functions.storeHash(hash_bytes).build_transaction(
-            {
-                "from": self._account.address,
-                "nonce": nonce,
-                "gas": 200_000,  # generous fixed limit for a single SSTORE; no dynamic estimation needed
-                "gasPrice": self._w3.eth.gas_price,
-                "chainId": self._w3.eth.chain_id,
-            }
-        )
-        signed = self._account.sign_transaction(tx)
-        tx_hash = self._w3.eth.send_raw_transaction(signed.raw_transaction)
         # Sepolia confirmation times observed in practice range well past
         # the 120s default (one took ~117s, another exceeded it outright) -
-        # 300s gives real headroom without the call blocking forever.
+        # 300s gives real headroom without the call blocking forever. A
+        # failure here (timeout, RPC error while polling) does NOT roll
+        # back the nonce above: the transaction was genuinely broadcast,
+        # so that nonce is correctly consumed on-chain regardless of
+        # whether we ever observe its receipt.
         receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
 
         events = self._contract.events.HashStored().process_receipt(receipt)
