@@ -15,6 +15,9 @@ env/
 .env.*
 !.env.example
 
+# --- ESP32 firmware secrets (WiFi credentials, device identity) ---
+ESP32/config.h
+
 # --- Node / React (Dashboard) ---
 node_modules/
 Dashboard/dist/
