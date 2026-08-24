@@ -8,7 +8,11 @@ Phase 1 defined the variables needed for MQTT ingestion, threshold alerting,
 and device-status tracking. Phase 2 adds MongoDB settings (MONGO_URI,
 MONGO_DB_NAME) and the Sepolia/Web3 settings (SEPOLIA_RPC_URL,
 BLOCKCHAIN_PRIVATE_KEY, BLOCKCHAIN_ACCOUNT, CONTRACT_ADDRESS) that
-blockchain.py will use once it's built.
+blockchain.py will use once it's built. VERIFICATION_INTERVAL_MINUTES
+(optional, defaults to 10) controls scheduler.py's periodic tamper-check
+cycle - kept deliberately optional with a conservative default rather
+than required, since a missing value should fall back to something safe
+rather than block gateway startup entirely.
 """
 
 from __future__ import annotations
@@ -62,6 +66,9 @@ class Config:
     gateway_host: str
     gateway_port: int
     log_level: str
+
+    # --- Periodic tamper-check scheduler (scheduler.py) ---
+    verification_interval_minutes: int
 
 
 def _require(raw: dict[str, str | None], errors: list[str], name: str) -> str | None:
@@ -176,8 +183,14 @@ def load_config() -> Config:
     gateway_host = os.getenv("GATEWAY_HOST", "0.0.0.0")
     gateway_port_raw = os.getenv("GATEWAY_PORT", "8000")
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    verification_interval_minutes_raw = os.getenv("VERIFICATION_INTERVAL_MINUTES", "10")
 
     gateway_port = _as_int(errors, "GATEWAY_PORT", gateway_port_raw)
+    verification_interval_minutes = _as_int(
+        errors, "VERIFICATION_INTERVAL_MINUTES", verification_interval_minutes_raw
+    )
+    if verification_interval_minutes is not None and verification_interval_minutes <= 0:
+        errors.append("  - VERIFICATION_INTERVAL_MINUTES must be > 0")
 
     if errors:
         env_file_note = (
@@ -195,6 +208,7 @@ def load_config() -> Config:
     assert co2_hysteresis_readings is not None
     assert device_timeout_seconds is not None
     assert gateway_port is not None
+    assert verification_interval_minutes is not None
     assert sepolia_rpc_url is not None
     assert blockchain_private_key is not None
     assert blockchain_account is not None
@@ -217,6 +231,7 @@ def load_config() -> Config:
         gateway_host=gateway_host,
         gateway_port=gateway_port,
         log_level=log_level,
+        verification_interval_minutes=verification_interval_minutes,
     )
 
 

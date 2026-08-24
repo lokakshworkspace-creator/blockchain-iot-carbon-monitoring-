@@ -1,7 +1,8 @@
 """
 FastAPI entry point for the gateway. The MQTT bridge, threshold engine,
-device-status tracking, Pipeline B (hash -> MongoDB -> Sepolia), and
-WebSocket alert delivery are all wired up here.
+device-status tracking, Pipeline B (hash -> MongoDB -> Sepolia), the
+periodic tamper-check scheduler, and WebSocket alert delivery are all
+wired up here.
 """
 
 import asyncio
@@ -18,6 +19,7 @@ from device_status import tracker as device_status_tracker
 from events import EventType, Severity, build_event
 from hashing import generate_hash
 from mqtt_client import MQTTBridge
+from scheduler import scheduler as verification_scheduler
 from threshold import engine as threshold_engine
 from verification import verify_record
 from websocket_manager import manager
@@ -27,8 +29,10 @@ logger = logging.getLogger(__name__)
 
 # How often the background task below checks for timed-out devices. Kept
 # well under the smallest sensible DEVICE_TIMEOUT_SECONDS so an offline
-# device is reported promptly without a dedicated scheduler (Phase 2's
-# scheduler.py may end up owning this loop too, but not yet).
+# device is reported promptly. This stays a plain asyncio loop rather
+# than an apscheduler job: it needs to run every couple of seconds, which
+# would defeat scheduler.py's whole point (a long interval, to avoid
+# hammering the RPC provider) if the two shared one scheduler instance.
 DEVICE_TIMEOUT_CHECK_INTERVAL_SECONDS = 2.0
 
 # GET /records paging. The cap exists so a stray ?limit=100000 can't pull
@@ -185,6 +189,7 @@ async def _check_device_timeouts_periodically() -> None:
 async def lifespan(app: FastAPI):
     mqtt_bridge.start()
     blockchain_client.start()  # tolerant of a not-yet-configured wallet/contract - see blockchain.py
+    verification_scheduler.start()
     consumer_task = asyncio.create_task(_consume_mqtt_messages())
     device_timeout_task = asyncio.create_task(_check_device_timeouts_periodically())
     try:
@@ -194,6 +199,7 @@ async def lifespan(app: FastAPI):
         device_timeout_task.cancel()
         for task in list(_pipeline_b_tasks):
             task.cancel()
+        verification_scheduler.stop()
         mqtt_bridge.stop()
 
 

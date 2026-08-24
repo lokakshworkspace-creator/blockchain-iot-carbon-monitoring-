@@ -7,8 +7,10 @@ pydantic==2.13.4
 websockets==17.0.1
 
 # Phase 2: data integrity pipeline (hashing -> MongoDB -> blockchain).
-# apscheduler will be added when the scheduler.py step starts.
 motor==3.7.1
 pymongo==4.17.0
 web3==7.16.0
 eth-account==0.14.0
+
+# Periodic tamper-check scheduler (scheduler.py).
+apscheduler==3.11.0

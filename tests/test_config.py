@@ -28,7 +28,7 @@ REQUIRED_VARS = [
     "BLOCKCHAIN_ACCOUNT",
     "CONTRACT_ADDRESS",
 ]
-OPTIONAL_VARS = ["GATEWAY_HOST", "GATEWAY_PORT", "LOG_LEVEL"]
+OPTIONAL_VARS = ["GATEWAY_HOST", "GATEWAY_PORT", "LOG_LEVEL", "VERIFICATION_INTERVAL_MINUTES"]
 
 
 @pytest.fixture(autouse=True)
@@ -90,6 +90,7 @@ def test_valid_env_loads_cleanly(tmp_path):
     assert result.gateway_host == "0.0.0.0"
     assert result.gateway_port == 8000
     assert result.log_level == "INFO"
+    assert result.verification_interval_minutes == 10
 
     # The private key must be readable via direct attribute access (the
     # app needs the real value to sign transactions)...
@@ -158,3 +159,31 @@ def test_malformed_blockchain_fields_are_rejected(tmp_path):
     assert "too-short" not in message
     assert "BLOCKCHAIN_ACCOUNT must be a 0x-prefixed 40-hex-char Ethereum address" in message
     assert "CONTRACT_ADDRESS must be a 0x-prefixed 40-hex-char Ethereum address" in message
+
+
+def test_verification_interval_minutes_must_be_a_positive_integer(tmp_path, monkeypatch):
+    env_file = _write_env_file(
+        tmp_path,
+        """
+        MQTT_BROKER_HOST=test-broker.local
+        MQTT_BROKER_PORT=1883
+        MQTT_TOPIC=carbon/sensor01
+        CO2_WARNING_THRESHOLD=800
+        CO2_CRITICAL_THRESHOLD=1500
+        CO2_HYSTERESIS_READINGS=2
+        DEVICE_TIMEOUT_SECONDS=45
+        MONGO_URI=mongodb://test-mongo:27017
+        MONGO_DB_NAME=test_db
+        SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/test-project-id
+        BLOCKCHAIN_PRIVATE_KEY=0x1111111111111111111111111111111111111111111111111111111111111111
+        BLOCKCHAIN_ACCOUNT=0x2222222222222222222222222222222222222222
+        CONTRACT_ADDRESS=0x3333333333333333333333333333333333333333
+        """,
+    )
+    load_dotenv(env_file, override=True)
+    monkeypatch.setenv("VERIFICATION_INTERVAL_MINUTES", "0")
+
+    with pytest.raises(config.ConfigError) as exc_info:
+        config.load_config()
+
+    assert "VERIFICATION_INTERVAL_MINUTES must be > 0" in str(exc_info.value)

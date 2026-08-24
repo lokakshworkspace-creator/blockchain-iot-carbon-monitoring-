@@ -128,6 +128,64 @@ async def _record_counts() -> None:
         await database._collection.delete_many({"device_id": "test-device-counts"})
 
 
+async def _recently_anchored_and_auto_verified() -> None:
+    # Three records: two anchored (with different blockchain_record_id
+    # values, inserted in a known order), one never anchored - the
+    # scheduler's sample must include only the anchored ones, newest
+    # first, and must respect whatever limit it asks for.
+    unanchored_id = await database.insert_sensor_record(
+        device_id="test-device-scheduler",
+        co2=600.0,
+        sensor_timestamp="2026-08-24T00:00:00+00:00",
+        gateway_received_timestamp="2026-08-24T00:00:00.500000+00:00",
+        hash_value="d" * 64,
+    )
+    anchored_first_id = await database.insert_sensor_record(
+        device_id="test-device-scheduler",
+        co2=650.0,
+        sensor_timestamp="2026-08-24T00:00:01+00:00",
+        gateway_received_timestamp="2026-08-24T00:00:01.500000+00:00",
+        hash_value="e" * 64,
+    )
+    anchored_second_id = await database.insert_sensor_record(
+        device_id="test-device-scheduler",
+        co2=700.0,
+        sensor_timestamp="2026-08-24T00:00:02+00:00",
+        gateway_received_timestamp="2026-08-24T00:00:02.500000+00:00",
+        hash_value="f" * 64,
+    )
+    try:
+        await database.update_blockchain_info(anchored_first_id, tx_hash="0xaaa", blockchain_record_id=101)
+        await database.update_blockchain_info(anchored_second_id, tx_hash="0xbbb", blockchain_record_id=102)
+
+        sample = await database.get_recently_anchored_records(limit=10)
+        sample_ids = [r["id"] for r in sample]
+        assert unanchored_id not in sample_ids  # never anchored - must not be sampled
+        # Newest anchored record first, oldest anchored record second.
+        assert sample_ids[:2] == [anchored_second_id, anchored_first_id]
+
+        assert [r["id"] for r in await database.get_recently_anchored_records(limit=1)] == [anchored_second_id]
+
+        # mark_auto_verified is separate bookkeeping from
+        # verification_status - it must not touch that field, and must
+        # show up in get_recent_records()'s projection so the dashboard
+        # could surface "last auto-verified at" without a new endpoint.
+        before = await database.get_sensor_record(anchored_first_id)
+        assert "last_auto_verified_at" not in before
+
+        await database.mark_auto_verified(anchored_first_id)
+
+        after = await database.get_sensor_record(anchored_first_id)
+        assert after["last_auto_verified_at"]
+        assert after["verification_status"] == "Pending"  # untouched by mark_auto_verified
+
+        recent = await database.get_recent_records(limit=10)
+        matching = next(r for r in recent if r["id"] == anchored_first_id)
+        assert matching["last_auto_verified_at"] == after["last_auto_verified_at"]
+    finally:
+        await database._collection.delete_many({"device_id": "test-device-scheduler"})
+
+
 def test_database_round_trip_recent_records_and_counts():
     async def _run():
         if not await _mongo_is_reachable():
@@ -136,5 +194,6 @@ def test_database_round_trip_recent_records_and_counts():
         await _insert_retrieve_update_round_trip()
         await _recent_records_listing()
         await _record_counts()
+        await _recently_anchored_and_auto_verified()
 
     asyncio.run(_run())

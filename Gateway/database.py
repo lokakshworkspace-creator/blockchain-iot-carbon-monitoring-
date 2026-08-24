@@ -8,6 +8,7 @@ update_blockchain_info() after a Sepolia transaction confirms.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from bson import ObjectId
@@ -55,6 +56,9 @@ async def get_sensor_record(record_id: str) -> dict[str, Any] | None:
 # The subset of fields the dashboard's record list needs. `hash` and
 # gateway_received_timestamp are deliberately left out: the list view never
 # shows them, and verification.py re-reads the full document by id anyway.
+# last_auto_verified_at is included so the dashboard COULD show "last
+# auto-verified at" later without a new endpoint - absent entirely on any
+# record the scheduler hasn't touched yet, per mark_auto_verified() below.
 _RECENT_RECORDS_PROJECTION = {
     "device_id": 1,
     "co2": 1,
@@ -62,6 +66,7 @@ _RECENT_RECORDS_PROJECTION = {
     "verification_status": 1,
     "blockchain_record_id": 1,
     "blockchain_tx_hash": 1,
+    "last_auto_verified_at": 1,
 }
 
 
@@ -95,6 +100,37 @@ async def count_records() -> dict[str, int]:
     total = await _collection.count_documents({})
     anchored = await _collection.count_documents({"blockchain_record_id": {"$ne": None}})
     return {"total": total, "anchored": anchored}
+
+
+async def get_recently_anchored_records(limit: int) -> list[dict[str, Any]]:
+    """The most recently anchored records - blockchain_record_id set,
+    newest first - for scheduler.py's periodic re-verification sample.
+
+    Only the id is projected: verify_record() re-fetches the full
+    document itself via get_sensor_record(), so this just needs to name
+    which records are worth spending a cycle on. Filtering to
+    blockchain_record_id != None skips records verify_record() would
+    immediately report NotAnchored for anyway - no point spending a
+    scheduled check on a record with nothing on-chain to compare against.
+    """
+    cursor = (
+        _collection.find({"blockchain_record_id": {"$ne": None}}, {"_id": 1}).sort("_id", -1).limit(limit)
+    )
+    return [{"id": str(document["_id"])} async for document in cursor]
+
+
+async def mark_auto_verified(record_id: str) -> None:
+    """Stamps when scheduler.py last automatically re-checked this
+    record. Deliberately separate from verification_status (which
+    verify_record() itself owns and which a manual check updates too) -
+    this field answers "was this auto-checked, and when", not "what did
+    the check find". A manual POST /verify/{id} call never touches this;
+    only scheduler.py does.
+    """
+    await _collection.update_one(
+        {"_id": ObjectId(record_id)},
+        {"$set": {"last_auto_verified_at": datetime.now(timezone.utc).isoformat()}},
+    )
 
 
 async def update_blockchain_info(record_id: str, tx_hash: str, blockchain_record_id: int) -> None:
