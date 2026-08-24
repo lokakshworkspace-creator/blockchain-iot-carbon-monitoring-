@@ -12,6 +12,15 @@ Usage:
 
     # Exact, repeatable CO2 sequence (for threshold/hysteresis testing):
     python tests/mqtt_test_publisher.py --co2-sequence "700,1200,1200,2200,700,700,700"
+
+    # Multiple concurrent devices: run separate instances (separate
+    # terminals, or backgrounded) with different --device-id values.
+    # Nothing else is needed - each instance is a fully independent MQTT
+    # client publishing to the same shared topic, exactly like two real
+    # ESP32 nodes would, and the gateway (mqtt_client.py/threshold.py/
+    # device_status.py) is already keyed by device_id throughout:
+    python tests/mqtt_test_publisher.py --device-id esp32-01 --co2-sequence "700,1200,1200,700"
+    python tests/mqtt_test_publisher.py --device-id esp32-02 --co2-sequence "2200,2200,2200,700"
 """
 
 from __future__ import annotations

@@ -567,6 +567,24 @@ body {
   font-size: 12.5px;
 }
 
+.device-select {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel-alt);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  height: fit-content;
+}
+
+.device-select:disabled {
+  color: var(--text-dim);
+  cursor: not-allowed;
+}
+
 .btn-verify {
   padding: 8px 18px;
   border: none;
