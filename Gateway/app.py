@@ -18,6 +18,7 @@ from database import count_records, get_recent_records, insert_sensor_record, up
 from device_status import tracker as device_status_tracker
 from events import EventType, Severity, build_event
 from hashing import generate_hash
+from models import DeviceStatusItem, HealthResponse, RecordItem, RecordsStatsResponse, VerifyResponse
 from mqtt_client import MQTTBridge
 from scheduler import scheduler as verification_scheduler
 from threshold import engine as threshold_engine
@@ -219,7 +220,7 @@ app.add_middleware(
 )
 
 
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse)
 def health() -> dict:
     return {
         "status": "ok",
@@ -233,12 +234,12 @@ def health() -> dict:
     }
 
 
-@app.get("/devices/status")
+@app.get("/devices/status", response_model=list[DeviceStatusItem])
 def devices_status() -> list[dict]:
     return device_status_tracker.snapshot()
 
 
-@app.get("/records")
+@app.get("/records", response_model=list[RecordItem])
 async def records(limit: int = Query(DEFAULT_RECORDS_LIMIT, ge=1, le=MAX_RECORDS_LIMIT)) -> list[dict]:
     """Recent readings, newest first. Backs both the Verification page
     (pick a record to verify) and Blockchain Logs (anchoring status per
@@ -246,7 +247,7 @@ async def records(limit: int = Query(DEFAULT_RECORDS_LIMIT, ge=1, le=MAX_RECORDS
     return await get_recent_records(limit)
 
 
-@app.get("/records/stats")
+@app.get("/records/stats", response_model=RecordsStatsResponse)
 async def records_stats() -> dict:
     """Total readings stored and how many are anchored on-chain, for the
     Overview page's counts. Declared before nothing else claims /records/*,
@@ -255,7 +256,7 @@ async def records_stats() -> dict:
     return await count_records()
 
 
-@app.post("/verify/{record_id}")
+@app.post("/verify/{record_id}", response_model=VerifyResponse)
 async def verify(record_id: str) -> dict:
     return await verify_record(record_id)
 
