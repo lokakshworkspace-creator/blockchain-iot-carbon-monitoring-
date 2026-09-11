@@ -26,14 +26,19 @@ export const GATEWAY_URL = (import.meta.env?.VITE_GATEWAY_URL ?? 'http://localho
 // endpoints too - they simply ignore any Authorization header.
 const TOKEN_STORAGE_KEY = 'carbon_monitor_token'
 
-function _authHeaders() {
-  let token = null
+/** Read the same stored token _authHeaders() uses below - exported so
+ * notificationSocket.js (Phase 6) can attach it to the WebSocket URL as a
+ * query param, since a browser WebSocket has no way to set a header. */
+export function getStoredToken() {
   try {
-    token = localStorage.getItem(TOKEN_STORAGE_KEY)
+    return localStorage.getItem(TOKEN_STORAGE_KEY)
   } catch {
-    // Some contexts (private browsing, a locked-down browser) throw on
-    // localStorage access - degrade to "no token" rather than crash.
+    return null
   }
+}
+
+function _authHeaders() {
+  const token = getStoredToken()
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
@@ -103,4 +108,27 @@ export function getReadings(deviceId, limit = 500) {
  */
 export function getAnalytics(deviceId, days = 7) {
   return _request(`/api/analytics/${encodeURIComponent(deviceId)}?days=${encodeURIComponent(days)}`)
+}
+
+/**
+ * GET /api/notifications?unseen=&limit= ->
+ * [{ id, region_id, factory_id, device_id, co2_value, severity, message,
+ *    created_at, delivered_realtime, seen_at, acknowledged }, ...]
+ * newest first. Region-scoped server-side (same auth as getReadings());
+ * unseen=false lists recent notifications generally, not just unseen
+ * ones - see Gateway/routers/notifications.py.
+ */
+export function getNotifications({ unseen = true, limit = 50 } = {}) {
+  const params = new URLSearchParams({ unseen: String(unseen), limit: String(limit) })
+  return _request(`/api/notifications?${params}`)
+}
+
+/** POST /api/notifications/{id}/seen -> the updated notification. */
+export function markNotificationSeen(notificationId) {
+  return _request(`/api/notifications/${encodeURIComponent(notificationId)}/seen`, { method: 'POST' })
+}
+
+/** POST /api/notifications/{id}/acknowledge -> the updated notification. */
+export function acknowledgeNotification(notificationId) {
+  return _request(`/api/notifications/${encodeURIComponent(notificationId)}/acknowledge`, { method: 'POST' })
 }

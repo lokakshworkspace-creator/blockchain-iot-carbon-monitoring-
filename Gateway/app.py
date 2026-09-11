@@ -15,9 +15,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from auth import authenticate_user, create_access_token
 from blockchain import client as blockchain_client
 from config import settings
-from database import count_records, get_recent_records, insert_sensor_record, touch_last_login, update_blockchain_info
+from database import (
+    count_records,
+    create_notification,
+    get_factory_and_region_for_device,
+    get_recent_records,
+    insert_sensor_record,
+    mark_notification_delivered,
+    touch_last_login,
+    update_blockchain_info,
+)
 from device_status import tracker as device_status_tracker
-from events import EventType, Severity, build_event
+from events import Event, EventType, Severity, build_event
 from hashing import generate_hash
 from models import (
     DeviceStatusItem,
@@ -29,14 +38,23 @@ from models import (
     VerifyResponse,
 )
 from mqtt_client import MQTTBridge
+from notification_rooms import rooms as notification_rooms
 from routers import admin_devices, admin_factories, admin_regions, admin_users
 from routers import factories as factories_router
+from routers import notifications as notifications_router
 from routers import readings as readings_router
 from routers import regions as regions_router
 from scheduler import scheduler as verification_scheduler
 from threshold import engine as threshold_engine
 from verification import verify_record
 from websocket_manager import manager
+
+# THRESHOLD_RESOLVED (Severity.INFO) deliberately does not produce a
+# notification - confirmed before building this, per Phase 6's request.
+# Only these two open/escalate an alert, and are the only ones a
+# regional_head or admin needs surfaced in the persistent notifications
+# feed rather than just the live event stream.
+_NOTIFIABLE_EVENT_TYPES = (EventType.THRESHOLD_WARNING, EventType.THRESHOLD_CRITICAL)
 
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -92,6 +110,13 @@ async def _consume_mqtt_messages() -> None:
             threshold_event = threshold_engine.evaluate(device_id, message.get("co2"))
             if threshold_event is not None:
                 await manager.broadcast(threshold_event.to_dict())
+                # Phase 6: persistent + region-pushed notification for this
+                # same event. Spawned, not awaited - CLAUDE.md is explicit
+                # that Pipeline A must never wait on Mongo, and this writes
+                # to it. threshold_engine.evaluate() has already run and
+                # the WebSocket broadcast above has already gone out
+                # regardless of anything that happens in this task.
+                _spawn_notification(threshold_event, message.get("co2"))
         except Exception:
             # Pipeline A must never die from one bad reading - log and keep
             # draining the queue, per CLAUDE.md's "minimal failure handling".
@@ -192,6 +217,49 @@ def _spawn_pipeline_b(message: dict) -> None:
     task.add_done_callback(_pipeline_b_tasks.discard)
 
 
+async def _process_notification(event: Event, co2: object) -> None:
+    """Phase 6: persists a notification for one THRESHOLD_WARNING/
+    THRESHOLD_CRITICAL event and, if a matching region (or admin) socket
+    is currently connected to /ws/notifications, pushes it live too.
+
+    Region resolution (device_id -> devices.factory_id ->
+    factories.region_id) can't happen inline in Pipeline A - it's a Mongo
+    read - so this whole step, not just the write, runs in the background
+    task this function is spawned as."""
+    resolved = await get_factory_and_region_for_device(event.device_id)
+    if resolved is None:
+        # Unregistered device: no region can be proven, so per the
+        # confirmed design decision, no notification is written at all -
+        # never with a guessed or null region.
+        return
+    factory_id, region_id = resolved
+    severity = "critical" if event.event_type is EventType.THRESHOLD_CRITICAL else "warning"
+
+    notification = await create_notification(
+        region_id=region_id,
+        factory_id=factory_id,
+        device_id=event.device_id,
+        co2_value=co2,
+        severity=severity,
+        message=event.message,
+    )
+
+    delivered = await notification_rooms.send_to_region(region_id, {**notification, "delivered_realtime": True})
+    if delivered:
+        await mark_notification_delivered(notification["id"])
+
+
+_notification_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_notification(event: Event, co2: object) -> None:
+    if event.event_type not in _NOTIFIABLE_EVENT_TYPES:
+        return
+    task = asyncio.create_task(_process_notification(event, co2))
+    _notification_tasks.add(task)
+    task.add_done_callback(_notification_tasks.discard)
+
+
 async def _check_device_timeouts_periodically() -> None:
     while True:
         await asyncio.sleep(DEVICE_TIMEOUT_CHECK_INTERVAL_SECONDS)
@@ -211,7 +279,7 @@ async def lifespan(app: FastAPI):
     finally:
         consumer_task.cancel()
         device_timeout_task.cancel()
-        for task in list(_pipeline_b_tasks):
+        for task in list(_pipeline_b_tasks) + list(_notification_tasks):
             task.cancel()
         verification_scheduler.stop()
         mqtt_bridge.stop()
@@ -243,6 +311,8 @@ app.include_router(admin_users.router)
 app.include_router(factories_router.router)
 app.include_router(regions_router.router)
 app.include_router(readings_router.router)
+app.include_router(notifications_router.router)
+app.include_router(notifications_router.ws_router)
 
 
 @app.post("/api/auth/login", response_model=LoginResponse)

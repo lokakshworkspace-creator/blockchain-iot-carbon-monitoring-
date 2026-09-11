@@ -27,6 +27,7 @@ USERS_COLLECTION_NAME = "users"
 REGIONS_COLLECTION_NAME = "regions"
 FACTORIES_COLLECTION_NAME = "factories"
 DEVICES_COLLECTION_NAME = "devices"
+NOTIFICATIONS_COLLECTION_NAME = "notifications"
 
 _client: AsyncIOMotorClient = AsyncIOMotorClient(settings.mongo_uri)
 _db = _client[settings.mongo_db_name]
@@ -35,6 +36,7 @@ _users_collection = _db[USERS_COLLECTION_NAME]
 _regions_collection = _db[REGIONS_COLLECTION_NAME]
 _factories_collection = _db[FACTORIES_COLLECTION_NAME]
 _devices_collection = _db[DEVICES_COLLECTION_NAME]
+_notifications_collection = _db[NOTIFICATIONS_COLLECTION_NAME]
 
 
 def _to_api_dict(document: dict[str, Any], *object_id_fields: str) -> dict[str, Any]:
@@ -426,22 +428,104 @@ async def delete_device(device_doc_id: str) -> bool:
     return result.deleted_count > 0
 
 
-async def get_region_id_for_device(device_id: str) -> str | None:
+# --- Phase 6: notifications (app.py's Pipeline A hook, routers/notifications.py) ---
+
+
+async def create_notification(
+    region_id: str,
+    factory_id: str,
+    device_id: str,
+    co2_value: float,
+    severity: str,
+    message: str,
+) -> dict[str, Any]:
+    """Always inserted with delivered_realtime=False - the caller
+    (app.py) attempts the live WebSocket push only after this document
+    exists (it needs the notification's own id in the push payload), and
+    calls mark_notification_delivered() separately if that push actually
+    reached a socket. A notification's existence is not contingent on
+    anyone being connected to receive it live."""
+    document = {
+        "region_id": ObjectId(region_id),
+        "factory_id": ObjectId(factory_id),
+        "device_id": device_id,
+        "co2_value": co2_value,
+        "severity": severity,
+        "message": message,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "delivered_realtime": False,
+        "seen_at": None,
+        "acknowledged": False,
+    }
+    result = await _notifications_collection.insert_one(document)
+    return _to_api_dict({**document, "_id": result.inserted_id}, "region_id", "factory_id")
+
+
+async def mark_notification_delivered(notification_id: str) -> None:
+    await _notifications_collection.update_one(
+        {"_id": ObjectId(notification_id)}, {"$set": {"delivered_realtime": True}}
+    )
+
+
+async def get_notification(notification_id: str) -> dict[str, Any] | None:
+    document = await _notifications_collection.find_one({"_id": ObjectId(notification_id)})
+    if document is None:
+        return None
+    return _to_api_dict(document, "region_id", "factory_id")
+
+
+async def list_notifications(scope_filter: dict[str, Any], unseen_only: bool, limit: int) -> list[dict[str, Any]]:
+    """scope_filter is auth.region_scope_filter()'s output (or an
+    admin-chosen {"region_id": ObjectId(...)} - see
+    routers/notifications.py), applied inside this query, same as every
+    other region-scoped list in this codebase - never fetched unfiltered
+    and narrowed in Python."""
+    query: dict[str, Any] = dict(scope_filter)
+    if unseen_only:
+        query["seen_at"] = None
+    cursor = _notifications_collection.find(query).sort("_id", -1).limit(limit)
+    return [_to_api_dict(document, "region_id", "factory_id") async for document in cursor]
+
+
+async def mark_notification_seen(notification_id: str) -> bool:
+    result = await _notifications_collection.update_one(
+        {"_id": ObjectId(notification_id)},
+        {"$set": {"seen_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return result.matched_count > 0
+
+
+async def mark_notification_acknowledged(notification_id: str) -> bool:
+    result = await _notifications_collection.update_one(
+        {"_id": ObjectId(notification_id)}, {"$set": {"acknowledged": True}}
+    )
+    return result.matched_count > 0
+
+
+async def get_factory_and_region_for_device(device_id: str) -> tuple[str, str] | None:
     """Resolves an MQTT device_id (the string identity, not a Mongo _id)
-    to its region, via the devices registry (Phase 2) -> factories.region_id
-    - device_id alone carries no region information, so this two-hop
-    lookup is required rather than optional. Returns None if the device
-    isn't registered, or its factory no longer exists - callers
-    (routers/readings.py) treat that as "cannot be proven to belong to
-    any region", which for a regional_head means out of scope, never a
-    default-allow."""
+    to (factory_id, region_id), via the devices registry (Phase 2) ->
+    factories - device_id alone carries no region information, so this
+    two-hop lookup is required rather than optional. Returns None if the
+    device isn't registered, or its factory no longer exists - callers
+    treat that as "cannot be proven to belong to any region", which for
+    a regional_head means out of scope, never a default-allow, and
+    (Phase 6) means a THRESHOLD event skips creating a notification
+    entirely rather than writing one with a guessed region."""
     device = await _devices_collection.find_one({"device_id": device_id})
     if device is None:
         return None
     factory = await _factories_collection.find_one({"_id": device["factory_id"]})
     if factory is None:
         return None
-    return str(factory["region_id"])
+    return str(factory["_id"]), str(factory["region_id"])
+
+
+async def get_region_id_for_device(device_id: str) -> str | None:
+    """Region-only convenience wrapper around get_factory_and_region_for_device()
+    for callers (routers/readings.py) that don't need factory_id too."""
+    resolved = await get_factory_and_region_for_device(device_id)
+    return resolved[1] if resolved else None
 
 
 # --- Phase 3: chart-hydration reads (routers/readings.py) ---

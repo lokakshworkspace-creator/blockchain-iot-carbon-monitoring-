@@ -74,7 +74,11 @@ def create_access_token(user_id: str, username: str, role: str, region_id: str |
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=_JWT_ALGORITHM)
 
 
-def _decode_token(token: str) -> CurrentUser:
+def decode_access_token(token: str) -> CurrentUser:
+    """Public (not just get_current_user's internal helper) since Phase 6's
+    WebSocket rooms need to decode a token that arrives as a query param,
+    not an Authorization header - there's no HTTPAuthorizationCredentials
+    for a WebSocket handshake to hang a Depends() off of."""
     try:
         payload: dict[str, Any] = jwt.decode(token, settings.jwt_secret_key, algorithms=[_JWT_ALGORITHM])
     except jwt.ExpiredSignatureError as exc:
@@ -104,7 +108,7 @@ async def get_current_user(
             detail="Missing Authorization header",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return _decode_token(credentials.credentials)
+    return decode_access_token(credentials.credentials)
 
 
 def require_role(role: str):

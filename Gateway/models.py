@@ -236,3 +236,28 @@ class AnalyticsDayItem(BaseModel):
     max: float
     count: int
     threshold_violations: int
+
+
+# --- Phase 6: notifications (routers/notifications.py) ---
+
+
+class NotificationItem(BaseModel):
+    """One row in GET /api/notifications - see database.py's
+    create_notification()/list_notifications(). Only THRESHOLD_WARNING/
+    THRESHOLD_CRITICAL events ever produce one (not THRESHOLD_RESOLVED -
+    a deliberate scope decision, confirmed before this was built) and
+    only for a device resolvable to a region via the devices registry
+    (an unregistered device's alert is never written here at all, rather
+    than written with a guessed or null region)."""
+
+    id: str
+    region_id: str
+    factory_id: str
+    device_id: str
+    co2_value: float
+    severity: Literal["warning", "critical"]
+    message: str
+    created_at: str
+    delivered_realtime: bool
+    seen_at: str | None
+    acknowledged: bool

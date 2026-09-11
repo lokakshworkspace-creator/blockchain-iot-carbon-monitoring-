@@ -10,6 +10,7 @@
 import { NavLink, Route, Routes } from 'react-router-dom'
 
 import ConnectionStatus from './components/ConnectionStatus.jsx'
+import NotificationBell from './components/NotificationBell.jsx'
 import BlockchainLogs from './pages/BlockchainLogs.jsx'
 import Overview from './pages/Overview.jsx'
 import RealTimeData from './pages/RealTimeData.jsx'
@@ -34,6 +35,7 @@ export default function App() {
             <div className="brand-title">Carbon Monitor</div>
             <div className="brand-subtitle">Blockchain + IoT</div>
           </div>
+          <NotificationBell />
         </div>
 
         <nav>

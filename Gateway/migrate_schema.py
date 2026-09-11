@@ -27,7 +27,7 @@ from pymongo import ASCENDING, DESCENDING
 from config import settings
 
 SENSOR_COLLECTION = "sensor_data"
-NEW_COLLECTIONS = ("users", "regions", "factories", "devices")
+NEW_COLLECTIONS = ("users", "regions", "factories", "devices", "notifications")
 
 
 async def _ensure_collection(db, name: str) -> None:
@@ -69,6 +69,13 @@ async def main() -> None:
     devices = db["devices"]
     await devices.create_index([("device_id", ASCENDING)], unique=True, name="uniq_device_id")
     print("  devices.device_id (unique) ensured")
+
+    print("\n3c. notifications index:")
+    notifications = db["notifications"]
+    await notifications.create_index(
+        [("region_id", ASCENDING), ("seen_at", ASCENDING)], name="region_id_seen_at"
+    )
+    print("  {region_id: 1, seen_at: 1} ensured (backs GET /api/notifications)")
 
     print("\n4. Backfilling factory_id on existing sensor_data documents:")
     result = await sensor_data.update_many(
