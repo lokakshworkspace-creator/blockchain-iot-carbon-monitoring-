@@ -14,3 +14,7 @@ eth-account==0.14.0
 
 # Periodic tamper-check scheduler (scheduler.py).
 apscheduler==3.11.0
+
+# Phase 5: user auth / RBAC (auth.py, users/regions/factories collections).
+pyjwt==2.14.0
+bcrypt==5.0.0

@@ -9,16 +9,25 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 
+from auth import authenticate_user, create_access_token
 from blockchain import client as blockchain_client
 from config import settings
-from database import count_records, get_recent_records, insert_sensor_record, update_blockchain_info
+from database import count_records, get_recent_records, insert_sensor_record, touch_last_login, update_blockchain_info
 from device_status import tracker as device_status_tracker
 from events import EventType, Severity, build_event
 from hashing import generate_hash
-from models import DeviceStatusItem, HealthResponse, RecordItem, RecordsStatsResponse, VerifyResponse
+from models import (
+    DeviceStatusItem,
+    HealthResponse,
+    LoginRequest,
+    LoginResponse,
+    RecordItem,
+    RecordsStatsResponse,
+    VerifyResponse,
+)
 from mqtt_client import MQTTBridge
 from scheduler import scheduler as verification_scheduler
 from threshold import engine as threshold_engine
@@ -218,6 +227,31 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.post("/api/auth/login", response_model=LoginResponse)
+async def login(credentials: LoginRequest) -> dict:
+    """Issues an 8h JWT on a valid username/password. Deliberately one
+    generic 401 whether the username doesn't exist, the account is
+    inactive, or the password is wrong - see auth.authenticate_user()."""
+    user = await authenticate_user(credentials.username, credentials.password)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
+
+    await touch_last_login(user["_id"])
+    token = create_access_token(
+        user_id=user["_id"],
+        username=user["username"],
+        role=user["role"],
+        region_id=user.get("region_id"),
+    )
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in_hours": settings.jwt_expiry_hours,
+        "role": user["role"],
+        "region_id": user.get("region_id"),
+    }
 
 
 @app.get("/health", response_model=HealthResponse)

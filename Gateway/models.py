@@ -12,9 +12,10 @@ real, accurate OpenAPI schema instead of an untyped "any object".
 
 Every field here mirrors an existing dict shape exactly - see
 database.py, device_status.py, and verification.py for where each one is
-actually built. Deliberately no request-body models: none of these
-endpoints take a JSON body (record_id is a path parameter, limit is a
-query parameter), so there is nothing to model on the input side.
+actually built. Every endpoint through Phase 4 took no JSON body (record_id
+is a path parameter, limit is a query parameter); POST /api/auth/login
+(Phase 5) is the first to need a request-body model, hence LoginRequest
+below alongside the response models.
 """
 
 from __future__ import annotations
@@ -84,3 +85,23 @@ class VerifyResponse(BaseModel):
     stored_hash: str | None
     onchain_hash: str | None
     recomputed_hash: str | None
+
+
+class LoginRequest(BaseModel):
+    """POST /api/auth/login request body - see auth.py's authenticate_user()."""
+
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    """POST /api/auth/login - see app.py's login(). role/region_id are
+    duplicated here (they're also inside access_token's JWT claims) purely
+    so the dashboard can render "logged in as <role>" without decoding the
+    token client-side."""
+
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_in_hours: int
+    role: str
+    region_id: str | None

@@ -13,6 +13,10 @@ blockchain.py will use once it's built. VERIFICATION_INTERVAL_MINUTES
 cycle - kept deliberately optional with a conservative default rather
 than required, since a missing value should fall back to something safe
 rather than block gateway startup entirely.
+
+Phase 5 adds JWT_SECRET_KEY (required - there is no safe default for a
+token-signing secret) and JWT_EXPIRY_HOURS (optional, defaults to 8) for
+auth.py's login/session handling.
 """
 
 from __future__ import annotations
@@ -69,6 +73,12 @@ class Config:
 
     # --- Periodic tamper-check scheduler (scheduler.py) ---
     verification_interval_minutes: int
+
+    # --- JWT auth (auth.py) ---
+    # repr=False for the same reason as blockchain_private_key: never leak
+    # into an accidental print(settings)/traceback.
+    jwt_secret_key: str = field(repr=False)
+    jwt_expiry_hours: int = 8
 
 
 def _require(raw: dict[str, str | None], errors: list[str], name: str) -> str | None:
@@ -141,6 +151,7 @@ def load_config() -> Config:
         "BLOCKCHAIN_PRIVATE_KEY",
         "BLOCKCHAIN_ACCOUNT",
         "CONTRACT_ADDRESS",
+        "JWT_SECRET_KEY",
     ]
     raw = {name: os.getenv(name) for name in required_names}
 
@@ -161,6 +172,10 @@ def load_config() -> Config:
     blockchain_private_key = _as_private_key(errors, "BLOCKCHAIN_PRIVATE_KEY", raw["BLOCKCHAIN_PRIVATE_KEY"])
     blockchain_account = _as_eth_address(errors, "BLOCKCHAIN_ACCOUNT", raw["BLOCKCHAIN_ACCOUNT"])
     contract_address = _as_eth_address(errors, "CONTRACT_ADDRESS", raw["CONTRACT_ADDRESS"])
+
+    jwt_secret_key = raw["JWT_SECRET_KEY"]
+    if jwt_secret_key is not None and len(jwt_secret_key) < 32:
+        errors.append("  - JWT_SECRET_KEY must be at least 32 characters (use secrets.token_hex(32))")
 
     if (
         co2_warning_threshold is not None
@@ -184,6 +199,7 @@ def load_config() -> Config:
     gateway_port_raw = os.getenv("GATEWAY_PORT", "8000")
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
     verification_interval_minutes_raw = os.getenv("VERIFICATION_INTERVAL_MINUTES", "10")
+    jwt_expiry_hours_raw = os.getenv("JWT_EXPIRY_HOURS", "8")
 
     gateway_port = _as_int(errors, "GATEWAY_PORT", gateway_port_raw)
     verification_interval_minutes = _as_int(
@@ -191,6 +207,10 @@ def load_config() -> Config:
     )
     if verification_interval_minutes is not None and verification_interval_minutes <= 0:
         errors.append("  - VERIFICATION_INTERVAL_MINUTES must be > 0")
+
+    jwt_expiry_hours = _as_int(errors, "JWT_EXPIRY_HOURS", jwt_expiry_hours_raw)
+    if jwt_expiry_hours is not None and jwt_expiry_hours <= 0:
+        errors.append("  - JWT_EXPIRY_HOURS must be > 0")
 
     if errors:
         env_file_note = (
@@ -213,6 +233,8 @@ def load_config() -> Config:
     assert blockchain_private_key is not None
     assert blockchain_account is not None
     assert contract_address is not None
+    assert jwt_secret_key is not None
+    assert jwt_expiry_hours is not None
 
     return Config(
         mqtt_broker_host=raw["MQTT_BROKER_HOST"],  # type: ignore[arg-type]
@@ -232,6 +254,8 @@ def load_config() -> Config:
         gateway_port=gateway_port,
         log_level=log_level,
         verification_interval_minutes=verification_interval_minutes,
+        jwt_secret_key=jwt_secret_key,
+        jwt_expiry_hours=jwt_expiry_hours,
     )
 
 

@@ -4,6 +4,11 @@ reading in the sensor_data collection: the raw reading fields, the SHA-256
 hash from hashing.py, and a verification_status that starts "Pending".
 blockchain.py (once built) will fill in the tx info via
 update_blockchain_info() after a Sepolia transaction confirms.
+
+Phase 5 adds three schema-only collections for the auth/RBAC layer (users,
+regions, factories) and an optional factory_id on sensor_data. factory_id
+is metadata only - it is never read by hashing.py, and adding it here does
+not touch the hash inputs (device_id, co2, sensor_timestamp) at all.
 """
 
 from __future__ import annotations
@@ -17,9 +22,16 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from config import settings
 
 COLLECTION_NAME = "sensor_data"
+USERS_COLLECTION_NAME = "users"
+REGIONS_COLLECTION_NAME = "regions"
+FACTORIES_COLLECTION_NAME = "factories"
 
 _client: AsyncIOMotorClient = AsyncIOMotorClient(settings.mongo_uri)
-_collection = _client[settings.mongo_db_name][COLLECTION_NAME]
+_db = _client[settings.mongo_db_name]
+_collection = _db[COLLECTION_NAME]
+_users_collection = _db[USERS_COLLECTION_NAME]
+_regions_collection = _db[REGIONS_COLLECTION_NAME]
+_factories_collection = _db[FACTORIES_COLLECTION_NAME]
 
 
 async def insert_sensor_record(
@@ -28,9 +40,17 @@ async def insert_sensor_record(
     sensor_timestamp: str,
     gateway_received_timestamp: str,
     hash_value: str,
+    factory_id: str | None = None,
 ) -> str:
     """Insert one sensor reading with verification_status="Pending" and no
-    blockchain info yet. Returns the new document's MongoDB _id as a str."""
+    blockchain info yet. Returns the new document's MongoDB _id as a str.
+
+    factory_id is optional and unrelated to the hash: hashing.generate_hash()
+    is called by the caller (app.py's Pipeline B) with only device_id, co2,
+    and sensor_timestamp, before this function ever runs. No router wires a
+    real factory_id through yet, so today's callers all pass None here -
+    the field exists on the schema so a later phase doesn't need another
+    migration."""
     document = {
         "device_id": device_id,
         "co2": co2,
@@ -40,6 +60,7 @@ async def insert_sensor_record(
         "verification_status": "Pending",
         "blockchain_tx_hash": None,
         "blockchain_record_id": None,
+        "factory_id": ObjectId(factory_id) if factory_id else None,
     }
     result = await _collection.insert_one(document)
     return str(result.inserted_id)
@@ -144,4 +165,54 @@ async def update_verification_status(record_id: str, status: str) -> None:
     await _collection.update_one(
         {"_id": ObjectId(record_id)},
         {"$set": {"verification_status": status}},
+    )
+
+
+# --- Phase 5: users/regions/factories (auth.py, create_admin.py) ---
+
+
+async def get_user_by_username(username: str) -> dict[str, Any] | None:
+    """Looks up a user for login. Includes password_hash (auth.py needs it
+    to verify the login attempt) - callers must strip it before returning
+    anything derived from this document over the API."""
+    document = await _users_collection.find_one({"username": username})
+    if document is None:
+        return None
+    document["_id"] = str(document["_id"])
+    if document.get("region_id") is not None:
+        document["region_id"] = str(document["region_id"])
+    return document
+
+
+async def create_user(
+    username: str,
+    email: str,
+    password_hash: str,
+    role: str,
+    region_id: str | None = None,
+) -> str:
+    """Inserts one user document. Raises pymongo.errors.DuplicateKeyError
+    if username or email already exists (see migrate_schema.py's unique
+    indexes) - callers (create_admin.py today) should let that surface
+    rather than silently overwrite an existing account."""
+    document = {
+        "username": username,
+        "email": email,
+        "password_hash": password_hash,
+        "role": role,
+        "region_id": ObjectId(region_id) if region_id else None,
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "last_login": None,
+    }
+    result = await _users_collection.insert_one(document)
+    return str(result.inserted_id)
+
+
+async def touch_last_login(user_id: str) -> None:
+    """Stamps last_login on a successful POST /api/auth/login. Best-effort:
+    callers should not fail the login itself if this write has a problem."""
+    await _users_collection.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}},
     )

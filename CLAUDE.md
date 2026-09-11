@@ -30,15 +30,43 @@ Ethereum Sepolia, React dashboard.
   Nothing else runs on the device.
 - Keep failure handling minimal: try/except + a logged event. No retry frameworks,
   no circuit breakers, no message queues.
-- Do NOT introduce microservices, Kubernetes, Kafka, Redis, ML, or auth systems -
-  explicitly out of scope for this project.
+- Do NOT introduce microservices, Kubernetes, Kafka, Redis, or ML - still explicitly
+  out of scope for this project. (Auth was on this list too, until Phase 5 below.)
+
+## Phase 5: RBAC / auth (approved scope addition)
+Originally this file excluded "auth systems" entirely. That was overridden deliberately
+for Phase 5 - a users/regions/factories layer so a regional_head can see only their own
+region's data while an admin sees everything. Everything else in this file still holds;
+this section only adds to it, and does not touch Pipeline A/B, hashing, or the blockchain
+flow in any way.
+- JWT auth, stateless: `get_current_user` decodes/validates the token only - it does not
+  re-read the user from MongoDB on every request. 8h expiry, no refresh tokens, by design
+  (matches "keep failure handling minimal" - one fewer moving part). Consequence:
+  deactivating a user or changing their role takes effect on their next login, not
+  mid-session - accepted, not an oversight.
+- Two roles only, no hierarchy: `admin` (region_id null, sees everything) and
+  `regional_head` (region_id set, scoped to it). `require_role()` is a plain equality
+  check. `region_scope_filter(current_user)` is the one place that turns a role into a
+  Mongo filter - every region-scoped route should call it rather than reimplementing the
+  admin-sees-all / regional_head-sees-own-region rule.
+- `factory_id` on `sensor_data` is additive metadata only. It is NEVER part of the hash -
+  the canonical hash fields (`device_id + co2 + sensor_timestamp`) are unchanged, and
+  nothing in hashing.py, blockchain.py, or verification.py was touched to add it.
+- First admin account is bootstrapped out-of-band via `Gateway/create_admin.py` (there is
+  no open registration endpoint - by design, matching "no auth systems" being a deliberate,
+  narrow exception rather than a green light for a full user-management surface).
+- Schema/index changes (the `users`/`regions`/`factories` collections, the unique indexes
+  on `users.username`/`users.email`, and the `sensor_data` `{device_id, sensor_timestamp}`
+  compound index) are applied via the one-off `Gateway/migrate_schema.py`, not at gateway
+  startup - keeps this fully decoupled from Pipeline A/B's hot path.
 
 ## Folder structure
 CarbonEmissionProject/
     ESP32/              (main.ino, config.h)
     Gateway/             (FastAPI: app.py, mqtt_client.py, threshold.py, device_status.py,
                           events.py, websocket_manager.py, hashing.py, database.py,
-                          blockchain.py, verification.py, scheduler.py, models.py, config.py)
+                          blockchain.py, verification.py, scheduler.py, models.py, config.py,
+                          auth.py, create_admin.py, migrate_schema.py)
     Dashboard/           (React: Overview, RealTimeData, Verification, BlockchainLogs, SystemMonitor)
     contracts/           (CarbonMonitor.sol)
     database/
@@ -47,8 +75,8 @@ CarbonEmissionProject/
 
 ## Tech stack
 Python 3.12, FastAPI, uvicorn, paho-mqtt, motor (async MongoDB), web3.py, apscheduler,
-websockets, python-dotenv, pydantic. React + Vite, axios, recharts. Solidity ^0.8.x on
-Sepolia testnet.
+websockets, python-dotenv, pydantic, PyJWT, bcrypt. React + Vite, axios, recharts.
+Solidity ^0.8.x on Sepolia testnet.
 
 ## Working style
 - Explain what you're about to build and why before writing code.
