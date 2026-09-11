@@ -17,10 +17,33 @@
 // is smoke-tested against a running gateway outside the browser.
 export const GATEWAY_URL = (import.meta.env?.VITE_GATEWAY_URL ?? 'http://localhost:8000').replace(/\/$/, '')
 
+// Stopgap until there's a real login page: every other endpoint this app
+// calls predates the gateway's JWT auth (Phase 1/2) and needs no token,
+// but GET /api/readings/{id} and GET /api/analytics/{id} (Phase 3) do.
+// For now, set a token once per browser via the devtools console:
+//   localStorage.setItem('carbon_monitor_token', '<paste a JWT from POST /api/auth/login>')
+// and every request attaches it. Harmless to send on the unauthenticated
+// endpoints too - they simply ignore any Authorization header.
+const TOKEN_STORAGE_KEY = 'carbon_monitor_token'
+
+function _authHeaders() {
+  let token = null
+  try {
+    token = localStorage.getItem(TOKEN_STORAGE_KEY)
+  } catch {
+    // Some contexts (private browsing, a locked-down browser) throw on
+    // localStorage access - degrade to "no token" rather than crash.
+  }
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 async function _request(path, options = {}) {
   let response
   try {
-    response = await fetch(`${GATEWAY_URL}${path}`, options)
+    response = await fetch(`${GATEWAY_URL}${path}`, {
+      ...options,
+      headers: { ..._authHeaders(), ...options.headers },
+    })
   } catch (cause) {
     // fetch() only rejects on a network-level failure (gateway not running,
     // DNS, CORS preflight refused) - never on an HTTP error status.
@@ -60,4 +83,24 @@ export function getRecordStats() {
  */
 export function verifyRecord(recordId) {
   return _request(`/verify/${encodeURIComponent(recordId)}`, { method: 'POST' })
+}
+
+/**
+ * GET /api/readings/{deviceId}?limit=N -> [{ device_id, co2, sensor_timestamp }, ...]
+ * oldest first (chart order) - see database.get_readings(). Requires auth
+ * (see TOKEN_STORAGE_KEY above); region-scoped server-side for a
+ * regional_head.
+ */
+export function getReadings(deviceId, limit = 500) {
+  return _request(`/api/readings/${encodeURIComponent(deviceId)}?limit=${encodeURIComponent(limit)}`)
+}
+
+/**
+ * GET /api/analytics/{deviceId}?days=N ->
+ * [{ date, avg, min, max, count, threshold_violations }, ...] oldest day
+ * first - see database.get_daily_analytics(). Same auth/region-scoping
+ * as getReadings().
+ */
+export function getAnalytics(deviceId, days = 7) {
+  return _request(`/api/analytics/${encodeURIComponent(deviceId)}?days=${encodeURIComponent(days)}`)
 }

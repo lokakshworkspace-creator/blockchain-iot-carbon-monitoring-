@@ -21,12 +21,20 @@ import { useMemo, useState } from 'react'
 
 import Co2Chart from '../components/Co2Chart.jsx'
 import Co2Gauge from '../components/Co2Gauge.jsx'
+import WeeklyAnalytics from '../components/WeeklyAnalytics.jsx'
 import { useEventStream } from '../context/eventStreamContext.js'
+import { useAnalytics } from '../hooks/useAnalytics.js'
 import { useDevices } from '../hooks/useDevices.js'
 import { useReadings } from '../hooks/useReadings.js'
 import { useThresholds } from '../hooks/useThresholds.js'
 import { currentAlertState } from '../lib/alerts.js'
 import { LEVEL_COLOR } from '../lib/levels.js'
+
+const ANALYTICS_DAYS = 7
+const CHART_TABS = [
+  { key: 'live', label: 'Live' },
+  { key: 'weekly', label: 'Last 7 Days' },
+]
 
 export default function RealTimeData() {
   const { events } = useEventStream()
@@ -43,6 +51,9 @@ export default function RealTimeData() {
   const selectedDeviceId = manualSelection ?? devices[0]?.device_id ?? null
 
   const { points, current, level } = useReadings(thresholds, selectedDeviceId)
+
+  const [chartTab, setChartTab] = useState('live')
+  const { data: weeklyData, error: weeklyError } = useAnalytics(selectedDeviceId, ANALYTICS_DAYS)
 
   // THRESHOLD_* events always carry the device_id that triggered them
   // (threshold.py's build_event never omits it), so filtering to the
@@ -118,11 +129,30 @@ export default function RealTimeData() {
 
       <section className="section">
         <div className="section-head">
-          <h2>Recent readings (ppm)</h2>
-          <span className="dim count">{points.length} points</span>
+          <h2>{chartTab === 'live' ? 'Recent readings (ppm)' : `Last ${ANALYTICS_DAYS} days (ppm)`}</h2>
+          <div className="filters">
+            {CHART_TABS.map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                className={chartTab === key ? 'chip active' : 'chip'}
+                onClick={() => setChartTab(key)}
+              >
+                {label}
+              </button>
+            ))}
+            {chartTab === 'live' && <span className="dim count">{points.length} points</span>}
+          </div>
         </div>
         <div className="card card-pad">
-          <Co2Chart points={points} thresholds={thresholds} />
+          {/* Only one of these renders at a time - a separate tab, never
+              an overlay on the live chart, per the two views having no
+              shared x-axis (per-reading vs per-day). */}
+          {chartTab === 'live' ? (
+            <Co2Chart points={points} thresholds={thresholds} />
+          ) : (
+            <WeeklyAnalytics days={weeklyData} thresholds={thresholds} error={weeklyError} />
+          )}
         </div>
       </section>
     </div>

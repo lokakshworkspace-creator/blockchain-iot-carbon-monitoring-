@@ -31,6 +31,7 @@ from models import (
 from mqtt_client import MQTTBridge
 from routers import admin_devices, admin_factories, admin_regions, admin_users
 from routers import factories as factories_router
+from routers import readings as readings_router
 from routers import regions as regions_router
 from scheduler import scheduler as verification_scheduler
 from threshold import engine as threshold_engine
@@ -241,6 +242,7 @@ app.include_router(admin_devices.router)
 app.include_router(admin_users.router)
 app.include_router(factories_router.router)
 app.include_router(regions_router.router)
+app.include_router(readings_router.router)
 
 
 @app.post("/api/auth/login", response_model=LoginResponse)

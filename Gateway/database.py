@@ -18,6 +18,7 @@ from typing import Any
 
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import DESCENDING
 
 from config import settings
 
@@ -423,3 +424,83 @@ async def update_device(device_doc_id: str, updates: dict[str, Any]) -> bool:
 async def delete_device(device_doc_id: str) -> bool:
     result = await _devices_collection.delete_one({"_id": ObjectId(device_doc_id)})
     return result.deleted_count > 0
+
+
+async def get_region_id_for_device(device_id: str) -> str | None:
+    """Resolves an MQTT device_id (the string identity, not a Mongo _id)
+    to its region, via the devices registry (Phase 2) -> factories.region_id
+    - device_id alone carries no region information, so this two-hop
+    lookup is required rather than optional. Returns None if the device
+    isn't registered, or its factory no longer exists - callers
+    (routers/readings.py) treat that as "cannot be proven to belong to
+    any region", which for a regional_head means out of scope, never a
+    default-allow."""
+    device = await _devices_collection.find_one({"device_id": device_id})
+    if device is None:
+        return None
+    factory = await _factories_collection.find_one({"_id": device["factory_id"]})
+    if factory is None:
+        return None
+    return str(factory["region_id"])
+
+
+# --- Phase 3: chart-hydration reads (routers/readings.py) ---
+
+
+async def get_readings(device_id: str, limit: int) -> list[dict[str, Any]]:
+    """Most recent `limit` readings for one device, sorted by
+    sensor_timestamp descending then reversed here so the caller gets
+    chronological (oldest-first) order - what a chart's x-axis needs.
+    Sorted by sensor_timestamp (not _id, unlike get_recent_records) since
+    that function merges every device together where insertion order
+    matters more than device-local time; this is scoped to one device_id,
+    where the device's own reported time is the more meaningful axis."""
+    cursor = (
+        _collection.find({"device_id": device_id}, {"_id": 0, "device_id": 1, "co2": 1, "sensor_timestamp": 1})
+        .sort("sensor_timestamp", DESCENDING)
+        .limit(limit)
+    )
+    rows = [row async for row in cursor]
+    rows.reverse()
+    return rows
+
+
+async def get_daily_analytics(device_id: str, cutoff_iso: str, warning_threshold: float) -> list[dict[str, Any]]:
+    """Per-day CO2 stats for one device over [cutoff_iso, now]. sensor_timestamp
+    is stored as an ISO-8601 string (per CLAUDE.md's canonical hash fields,
+    this is never touched), so $dateFromString parses it before grouping
+    by calendar day - a plain string $substr would work today only because
+    every writer in this codebase happens to use the same fixed-width
+    isoformat(), which is a much more fragile thing to depend on.
+
+    threshold_violations counts readings at or above co2_warning_threshold
+    (the same boundary threshold.py's _classify() uses for "not NORMAL") -
+    the existing alert threshold, not a new one invented for this endpoint."""
+    pipeline = [
+        {"$match": {"device_id": device_id, "sensor_timestamp": {"$gte": cutoff_iso}}},
+        {"$addFields": {"_ts": {"$dateFromString": {"dateString": "$sensor_timestamp"}}}},
+        {
+            "$group": {
+                "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$_ts"}},
+                "avg": {"$avg": "$co2"},
+                "min": {"$min": "$co2"},
+                "max": {"$max": "$co2"},
+                "count": {"$sum": 1},
+                "threshold_violations": {"$sum": {"$cond": [{"$gte": ["$co2", warning_threshold]}, 1, 0]}},
+            }
+        },
+        {"$sort": {"_id": 1}},
+    ]
+    results = []
+    async for doc in _collection.aggregate(pipeline):
+        results.append(
+            {
+                "date": doc["_id"],
+                "avg": round(doc["avg"], 1),
+                "min": doc["min"],
+                "max": doc["max"],
+                "count": doc["count"],
+                "threshold_violations": doc["threshold_violations"],
+            }
+        )
+    return results

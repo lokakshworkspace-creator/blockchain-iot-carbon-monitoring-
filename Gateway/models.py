@@ -208,3 +208,31 @@ class UserItem(BaseModel):
     is_active: bool
     created_at: str
     last_login: str | None
+
+
+# --- Phase 3: chart hydration + daily analytics (routers/readings.py) ---
+
+
+class ReadingItem(BaseModel):
+    """One row in GET /api/readings/{device_id} - see
+    database.py's get_readings(). Deliberately lean (no id, no hash, no
+    blockchain fields): this backs a chart, not a records table."""
+
+    device_id: str
+    co2: float
+    sensor_timestamp: str
+
+
+class AnalyticsDayItem(BaseModel):
+    """One day in GET /api/analytics/{device_id} - see
+    database.py's get_daily_analytics(). threshold_violations counts
+    readings at or above the gateway's own configured warning threshold
+    (settings.co2_warning_threshold, the same value threshold.py's alert
+    logic uses) - not a separately hardcoded number."""
+
+    date: str
+    avg: float
+    min: float
+    max: float
+    count: int
+    threshold_violations: int
