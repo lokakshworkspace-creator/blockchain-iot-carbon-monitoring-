@@ -1,2 +1,8 @@
 # Test-only dependencies. Install alongside Gateway/requirements.txt.
 pytest==9.1.1
+# test_region_isolation.py drives the real FastAPI app through its HTTP
+# layer (auth dependencies, response_model serialization included) via
+# httpx.AsyncClient(transport=ASGITransport(...)) - no other test in this
+# suite needed httpx before, since they call app.py's/database.py's
+# functions directly instead.
+httpx==0.28.1

@@ -105,3 +105,106 @@ class LoginResponse(BaseModel):
     expires_in_hours: int
     role: str
     region_id: str | None
+
+
+# --- Phase 2: regions/factories/devices/users admin CRUD + region-scoped reads ---
+
+
+class RegionCreate(BaseModel):
+    name: str
+    description: str = ""
+
+
+class RegionUpdate(BaseModel):
+    """All fields optional - a PATCH only touches whatever the caller
+    actually included in the body (see routers/_common.py's exclude_unset
+    usage)."""
+
+    name: str | None = None
+    description: str | None = None
+
+
+class RegionItem(BaseModel):
+    id: str
+    name: str
+    description: str
+    created_at: str
+
+
+class FactoryCreate(BaseModel):
+    name: str
+    region_id: str
+    is_simulated: bool = False
+    location: str = ""
+
+
+class FactoryUpdate(BaseModel):
+    name: str | None = None
+    region_id: str | None = None
+    is_simulated: bool | None = None
+    location: str | None = None
+
+
+class FactoryItem(BaseModel):
+    id: str
+    name: str
+    region_id: str
+    is_simulated: bool
+    location: str
+    created_at: str
+
+
+class DeviceCreate(BaseModel):
+    """device_id is the MQTT identity (matches sensor_data.device_id);
+    factory_id is this registry document's parent factory."""
+
+    device_id: str
+    factory_id: str
+    is_hardware: bool = False
+
+
+class DeviceUpdate(BaseModel):
+    device_id: str | None = None
+    factory_id: str | None = None
+    is_hardware: bool | None = None
+
+
+class DeviceItem(BaseModel):
+    id: str
+    device_id: str
+    factory_id: str
+    is_hardware: bool
+    created_at: str
+
+
+class AdminUserCreate(BaseModel):
+    """POST /api/admin/users. confirm_admin_creation must be explicitly
+    true to create role="admin" - see routers/admin_users.py's module
+    docstring for why. Ignored entirely for role="regional_head"."""
+
+    username: str
+    email: str
+    password: str
+    role: Literal["admin", "regional_head"]
+    region_id: str | None = None
+    confirm_admin_creation: bool = False
+
+
+class AdminUserUpdate(BaseModel):
+    """PATCH /api/admin/users/{id}. Deliberately no role or password field
+    here - see routers/admin_users.py's module docstring for why role
+    changes aren't part of this endpoint."""
+
+    region_id: str | None = None
+    is_active: bool | None = None
+
+
+class UserItem(BaseModel):
+    id: str
+    username: str
+    email: str
+    role: str
+    region_id: str | None
+    is_active: bool
+    created_at: str
+    last_login: str | None

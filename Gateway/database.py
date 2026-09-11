@@ -25,6 +25,7 @@ COLLECTION_NAME = "sensor_data"
 USERS_COLLECTION_NAME = "users"
 REGIONS_COLLECTION_NAME = "regions"
 FACTORIES_COLLECTION_NAME = "factories"
+DEVICES_COLLECTION_NAME = "devices"
 
 _client: AsyncIOMotorClient = AsyncIOMotorClient(settings.mongo_uri)
 _db = _client[settings.mongo_db_name]
@@ -32,6 +33,21 @@ _collection = _db[COLLECTION_NAME]
 _users_collection = _db[USERS_COLLECTION_NAME]
 _regions_collection = _db[REGIONS_COLLECTION_NAME]
 _factories_collection = _db[FACTORIES_COLLECTION_NAME]
+_devices_collection = _db[DEVICES_COLLECTION_NAME]
+
+
+def _to_api_dict(document: dict[str, Any], *object_id_fields: str) -> dict[str, Any]:
+    """Common conversion for documents returned over the API: renames _id
+    to id (both as str) and stringifies any other ObjectId-valued fields
+    named in object_id_fields (e.g. region_id, factory_id) - Mongo's
+    ObjectId isn't JSON-serializable and every reference field here holds
+    one as-is."""
+    document = dict(document)
+    document["id"] = str(document.pop("_id"))
+    for field_name in object_id_fields:
+        if document.get(field_name) is not None:
+            document[field_name] = str(document[field_name])
+    return document
 
 
 async def insert_sensor_record(
@@ -216,3 +232,194 @@ async def touch_last_login(user_id: str) -> None:
         {"_id": ObjectId(user_id)},
         {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}},
     )
+
+
+async def get_user_by_id(user_id: str) -> dict[str, Any] | None:
+    """Public-facing single-user lookup (GET/PATCH/DELETE /api/admin/users/{id})
+    - password_hash is excluded at the query level, not left to
+    response_model filtering alone, so this dict is safe to return even
+    before pydantic sees it."""
+    document = await _users_collection.find_one({"_id": ObjectId(user_id)}, {"password_hash": 0})
+    if document is None:
+        return None
+    return _to_api_dict(document, "region_id")
+
+
+async def list_users() -> list[dict[str, Any]]:
+    cursor = _users_collection.find({}, {"password_hash": 0}).sort("_id", -1)
+    return [_to_api_dict(document, "region_id") async for document in cursor]
+
+
+async def update_user(user_id: str, updates: dict[str, Any]) -> bool:
+    """updates comes from AdminUserUpdate.model_dump(exclude_unset=True) -
+    today that's only region_id and is_active (see models.py for why role
+    is deliberately not patchable here)."""
+    doc_updates = dict(updates)
+    if "region_id" in doc_updates:
+        doc_updates["region_id"] = ObjectId(doc_updates["region_id"]) if doc_updates["region_id"] else None
+    result = await _users_collection.update_one({"_id": ObjectId(user_id)}, {"$set": doc_updates})
+    return result.matched_count > 0
+
+
+async def delete_user(user_id: str) -> bool:
+    result = await _users_collection.delete_one({"_id": ObjectId(user_id)})
+    return result.deleted_count > 0
+
+
+async def count_active_admins() -> int:
+    """Used by the admin_users router to refuse deleting/deactivating the
+    last remaining admin - with no open registration endpoint, losing the
+    last one would be unrecoverable short of going back to
+    create_admin.py directly against MongoDB."""
+    return await _users_collection.count_documents({"role": "admin", "is_active": True})
+
+
+# --- Phase 2: regions/factories/devices CRUD (admin_*.py, factories.py, regions.py routers) ---
+
+
+async def create_region(name: str, description: str) -> str:
+    document = {
+        "name": name,
+        "description": description,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    result = await _regions_collection.insert_one(document)
+    return str(result.inserted_id)
+
+
+async def get_region(region_id: str) -> dict[str, Any] | None:
+    document = await _regions_collection.find_one({"_id": ObjectId(region_id)})
+    if document is None:
+        return None
+    return _to_api_dict(document)
+
+
+async def list_regions() -> list[dict[str, Any]]:
+    cursor = _regions_collection.find({}).sort("_id", -1)
+    return [_to_api_dict(document) async for document in cursor]
+
+
+async def update_region(region_id: str, updates: dict[str, Any]) -> bool:
+    result = await _regions_collection.update_one({"_id": ObjectId(region_id)}, {"$set": updates})
+    return result.matched_count > 0
+
+
+async def delete_region(region_id: str) -> bool:
+    result = await _regions_collection.delete_one({"_id": ObjectId(region_id)})
+    return result.deleted_count > 0
+
+
+async def count_factories_in_region(region_id: str) -> int:
+    """Guards DELETE /api/admin/regions/{id}: a region with factories still
+    pointing at it is left alone rather than silently orphaning them."""
+    return await _factories_collection.count_documents({"region_id": ObjectId(region_id)})
+
+
+async def create_factory(name: str, region_id: str, is_simulated: bool, location: str) -> str:
+    document = {
+        "name": name,
+        "region_id": ObjectId(region_id),
+        "is_simulated": is_simulated,
+        "location": location,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    result = await _factories_collection.insert_one(document)
+    return str(result.inserted_id)
+
+
+async def get_factory(factory_id: str) -> dict[str, Any] | None:
+    document = await _factories_collection.find_one({"_id": ObjectId(factory_id)})
+    if document is None:
+        return None
+    return _to_api_dict(document, "region_id")
+
+
+async def get_factory_scoped(factory_id: str, scope_filter: dict[str, Any]) -> dict[str, Any] | None:
+    """Like get_factory(), but ANDs scope_filter (auth.region_scope_filter()'s
+    output) into the same query - the existence check and the region check
+    are one Mongo call, so a regional_head requesting another region's
+    factory_id gets exactly the same "not found" result as a genuinely
+    nonexistent id. There is no separate step where a 403 could leak
+    "it exists, just not for you"."""
+    query: dict[str, Any] = {"_id": ObjectId(factory_id), **scope_filter}
+    document = await _factories_collection.find_one(query)
+    if document is None:
+        return None
+    return _to_api_dict(document, "region_id")
+
+
+async def list_factories(scope_filter: dict[str, Any]) -> list[dict[str, Any]]:
+    """scope_filter is auth.region_scope_filter()'s output - {} for an
+    admin (no restriction), {"region_id": ObjectId(...)} for a
+    regional_head. The restriction is applied inside this Mongo query,
+    not by filtering an unrestricted fetch afterward."""
+    cursor = _factories_collection.find(scope_filter).sort("_id", -1)
+    return [_to_api_dict(document, "region_id") async for document in cursor]
+
+
+async def update_factory(factory_id: str, updates: dict[str, Any]) -> bool:
+    doc_updates = dict(updates)
+    if "region_id" in doc_updates and doc_updates["region_id"] is not None:
+        doc_updates["region_id"] = ObjectId(doc_updates["region_id"])
+    result = await _factories_collection.update_one({"_id": ObjectId(factory_id)}, {"$set": doc_updates})
+    return result.matched_count > 0
+
+
+async def delete_factory(factory_id: str) -> bool:
+    result = await _factories_collection.delete_one({"_id": ObjectId(factory_id)})
+    return result.deleted_count > 0
+
+
+async def count_devices_in_factory(factory_id: str) -> int:
+    """Guards DELETE /api/admin/factories/{id}, same reasoning as
+    count_factories_in_region()."""
+    return await _devices_collection.count_documents({"factory_id": ObjectId(factory_id)})
+
+
+async def create_device(device_id: str, factory_id: str, is_hardware: bool) -> str:
+    """Raises pymongo.errors.DuplicateKeyError if device_id is already
+    registered - see migrate_schema.py's unique index on devices.device_id."""
+    document = {
+        "device_id": device_id,
+        "factory_id": ObjectId(factory_id),
+        "is_hardware": is_hardware,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    result = await _devices_collection.insert_one(document)
+    return str(result.inserted_id)
+
+
+async def get_device(device_doc_id: str) -> dict[str, Any] | None:
+    document = await _devices_collection.find_one({"_id": ObjectId(device_doc_id)})
+    if document is None:
+        return None
+    return _to_api_dict(document, "factory_id")
+
+
+async def list_devices() -> list[dict[str, Any]]:
+    cursor = _devices_collection.find({}).sort("_id", -1)
+    return [_to_api_dict(document, "factory_id") async for document in cursor]
+
+
+async def list_devices_by_factory(factory_id: str) -> list[dict[str, Any]]:
+    """No extra region check needed here - the caller (routers/factories.py)
+    only reaches this after get_factory_scoped() has already confirmed the
+    factory itself is in the caller's scope, and every device belongs to
+    exactly one factory."""
+    cursor = _devices_collection.find({"factory_id": ObjectId(factory_id)}).sort("_id", -1)
+    return [_to_api_dict(document, "factory_id") async for document in cursor]
+
+
+async def update_device(device_doc_id: str, updates: dict[str, Any]) -> bool:
+    """Raises pymongo.errors.DuplicateKeyError if updates changes device_id
+    to one that's already registered to a different device."""
+    doc_updates = dict(updates)
+    if "factory_id" in doc_updates and doc_updates["factory_id"] is not None:
+        doc_updates["factory_id"] = ObjectId(doc_updates["factory_id"])
+    result = await _devices_collection.update_one({"_id": ObjectId(device_doc_id)}, {"$set": doc_updates})
+    return result.matched_count > 0
+
+
+async def delete_device(device_doc_id: str) -> bool:
+    result = await _devices_collection.delete_one({"_id": ObjectId(device_doc_id)})
+    return result.deleted_count > 0

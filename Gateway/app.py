@@ -29,6 +29,9 @@ from models import (
     VerifyResponse,
 )
 from mqtt_client import MQTTBridge
+from routers import admin_devices, admin_factories, admin_regions, admin_users
+from routers import factories as factories_router
+from routers import regions as regions_router
 from scheduler import scheduler as verification_scheduler
 from threshold import engine as threshold_engine
 from verification import verify_record
@@ -227,6 +230,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Phase 2: admin CRUD (regions/factories/devices/users) and the
+# region-scoped shared reads. Each router owns its own auth dependency
+# (require_role("admin") or get_current_user) - nothing here in app.py
+# needs to know which; see routers/*.py.
+app.include_router(admin_regions.router)
+app.include_router(admin_factories.router)
+app.include_router(admin_devices.router)
+app.include_router(admin_users.router)
+app.include_router(factories_router.router)
+app.include_router(regions_router.router)
 
 
 @app.post("/api/auth/login", response_model=LoginResponse)

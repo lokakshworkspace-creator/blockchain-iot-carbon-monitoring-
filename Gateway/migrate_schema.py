@@ -1,8 +1,10 @@
 """
-One-off Phase 5 schema migration: creates the users/regions/factories
-collections, adds the {device_id, sensor_timestamp} compound index and the
-users unique indexes, and backfills factory_id=None onto any existing
-sensor_data document that predates this field.
+One-off schema migration, Phase 5 + Phase 2's addition: creates the
+users/regions/factories/devices collections, adds the
+{device_id, sensor_timestamp} compound index on sensor_data, the users
+unique indexes, the devices unique index on device_id, and backfills
+factory_id=None onto any existing sensor_data document that predates that
+field.
 
 Safe to run more than once - every step here is idempotent (create_index
 and create_collection are no-ops if the index/collection already matches;
@@ -25,7 +27,7 @@ from pymongo import ASCENDING, DESCENDING
 from config import settings
 
 SENSOR_COLLECTION = "sensor_data"
-NEW_COLLECTIONS = ("users", "regions", "factories")
+NEW_COLLECTIONS = ("users", "regions", "factories", "devices")
 
 
 async def _ensure_collection(db, name: str) -> None:
@@ -62,6 +64,11 @@ async def main() -> None:
         name="device_id_sensor_timestamp",
     )
     print("  {device_id: 1, sensor_timestamp: -1} ensured")
+
+    print("\n3b. devices unique index:")
+    devices = db["devices"]
+    await devices.create_index([("device_id", ASCENDING)], unique=True, name="uniq_device_id")
+    print("  devices.device_id (unique) ensured")
 
     print("\n4. Backfilling factory_id on existing sensor_data documents:")
     result = await sensor_data.update_many(
