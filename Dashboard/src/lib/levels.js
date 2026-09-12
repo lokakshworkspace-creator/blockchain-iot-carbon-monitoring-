@@ -16,10 +16,13 @@
  * constants here - they live in the gateway's .env.
  */
 
+// Matches styles.css's --ok/--warning/--critical exactly (recharts/inline
+// styles need real color values, not var(), in every context this is
+// used) - keep these two in sync if the palette ever changes.
 export const LEVEL_COLOR = {
-  NORMAL: '#35d07f',
-  WARNING: '#f5b23a',
-  CRITICAL: '#ff5f6d',
+  NORMAL: '#2fbf8f',
+  WARNING: '#f5a623',
+  CRITICAL: '#e5484d',
 }
 
 /** Same rule as threshold.py: >= critical is CRITICAL, >= warning is WARNING. */

@@ -10,6 +10,7 @@
 
 import {
   CartesianGrid,
+  Legend,
   Line,
   LineChart,
   ReferenceLine,
@@ -21,9 +22,18 @@ import {
 
 import { LEVEL_COLOR } from '../lib/levels.js'
 
+// Matches styles.css's --border/--text-dim/--bg-panel/--accent exactly -
+// recharts needs real color values (not var()) for SVG stroke/fill props
+// in every context used here, so these are kept in sync by hand rather
+// than read from the stylesheet.
+const GRID_COLOR = '#232c2e'
+const AXIS_COLOR = '#8fa39c'
+const TOOLTIP_BG = '#12181a'
+const LIVE_LINE_COLOR = '#2fbf8f'
+
 function LevelDot({ cx, cy, payload }) {
   if (cx === undefined || cy === undefined) return null
-  return <circle cx={cx} cy={cy} r={3} fill={LEVEL_COLOR[payload.level] ?? '#4f9dff'} />
+  return <circle cx={cx} cy={cy} r={3} fill={LEVEL_COLOR[payload.level] ?? LIVE_LINE_COLOR} />
 }
 
 export default function Co2Chart({ points, thresholds }) {
@@ -46,21 +56,22 @@ export default function Co2Chart({ points, thresholds }) {
     <div className="chart">
       <ResponsiveContainer width="100%" height={320}>
         <LineChart data={points} margin={{ top: 8, right: 16, bottom: 4, left: 0 }}>
-          <CartesianGrid stroke="#2a3348" strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="time" stroke="#93a0bb" tick={{ fontSize: 11 }} minTickGap={28} />
+          <CartesianGrid stroke={GRID_COLOR} strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="time" stroke={AXIS_COLOR} tick={{ fontSize: 11 }} minTickGap={28} />
           {/* No rotated axis label: at this chart's left margin it clips.
               The unit is stated in the section heading instead. */}
-          <YAxis stroke="#93a0bb" tick={{ fontSize: 11 }} width={46} domain={[0, Math.round(yMax)]} />
+          <YAxis stroke={AXIS_COLOR} tick={{ fontSize: 11 }} width={46} domain={[0, Math.round(yMax)]} />
           <Tooltip
             contentStyle={{
-              background: '#171d2c',
-              border: '1px solid #2a3348',
+              background: TOOLTIP_BG,
+              border: `1px solid ${GRID_COLOR}`,
               borderRadius: 8,
               fontSize: 12,
             }}
-            labelStyle={{ color: '#93a0bb' }}
+            labelStyle={{ color: AXIS_COLOR }}
             formatter={(value, _name, item) => [`${value} ppm (${item.payload.level})`, 'CO₂']}
           />
+          <Legend wrapperStyle={{ fontSize: 12, color: AXIS_COLOR }} />
 
           {thresholds !== null && (
             <ReferenceLine
@@ -82,7 +93,8 @@ export default function Co2Chart({ points, thresholds }) {
           <Line
             type="monotone"
             dataKey="co2"
-            stroke="#4f9dff"
+            name="Live CO₂ (ppm)"
+            stroke={LIVE_LINE_COLOR}
             strokeWidth={2}
             dot={<LevelDot />}
             isAnimationActive={false}

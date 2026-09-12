@@ -35,12 +35,15 @@ export default function Login() {
   }
 
   return (
-    <div className="page login-page">
-      <form className="card card-pad login-form" onSubmit={handleSubmit}>
-        <h1>Carbon Monitor</h1>
-        <p className="page-subtitle">Sign in to continue.</p>
+    <div className="login-page">
+      <form className="card login-form" onSubmit={handleSubmit}>
+        <div className="login-brand">
+          <div className="brand-mark">CO₂</div>
+          <h1>Carbon Monitor</h1>
+        </div>
+        <p className="page-subtitle login-subtitle">Sign in to continue.</p>
 
-        {error && <div className="empty error-text">{error}</div>}
+        {error && <div className="empty error-text login-error">{error}</div>}
 
         <label className="login-field">
           <span>Username</span>

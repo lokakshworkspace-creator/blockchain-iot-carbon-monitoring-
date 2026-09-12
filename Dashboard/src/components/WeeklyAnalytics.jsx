@@ -1,16 +1,23 @@
 /**
  * "Last 7 Days" panel: GET /api/analytics/{deviceId}'s per-day stats as a
  * bar chart (one bar per day, average CO2) plus a summary row aggregated
- * across the fetched window. A deliberately separate section from the
- * live line chart (Co2Chart), not an overlay on it - a bar-per-day view
- * and a per-reading line share no meaningful x-axis, so combining them
- * into one chart would misrepresent both.
+ * across the fetched window. A deliberately separate section (its own
+ * tab in Real-Time Data/Factory Detail) from the live line chart
+ * (Co2Chart), not an overlay on it - a bar-per-day view and a
+ * per-reading line share no meaningful x-axis, so combining them into
+ * one chart would misrepresent both. The styling direction's "muted
+ * grey comparison line, shared legend" is honored at the color/legend
+ * level instead: this chart's bars are drawn in a muted grey rather than
+ * the live chart's teal accent (the two tabs stay visually
+ * distinguishable at a glance), and both charts carry a Legend in the
+ * same position/style, without merging their data into one view.
  */
 
 import {
   Bar,
   BarChart,
   CartesianGrid,
+  Legend,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -19,6 +26,16 @@ import {
 } from 'recharts'
 
 import { LEVEL_COLOR } from '../lib/levels.js'
+
+// Matches Co2Chart.jsx's constants exactly, plus a muted grey reserved
+// for this "comparison" view specifically - the live chart's line stays
+// the only thing drawn in the teal accent, so glancing at either chart
+// tells you which one you're looking at even without reading the tab
+// label.
+const GRID_COLOR = '#232c2e'
+const AXIS_COLOR = '#8fa39c'
+const TOOLTIP_BG = '#12181a'
+const COMPARISON_BAR_COLOR = '#7a8b86'
 
 export default function WeeklyAnalytics({ days, thresholds, error }) {
   if (error) {
@@ -78,19 +95,20 @@ export default function WeeklyAnalytics({ days, thresholds, error }) {
       <div className="chart">
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={days} margin={{ top: 8, right: 16, bottom: 4, left: 0 }}>
-            <CartesianGrid stroke="#2a3348" strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="date" stroke="#93a0bb" tick={{ fontSize: 11 }} />
-            <YAxis stroke="#93a0bb" tick={{ fontSize: 11 }} width={46} domain={[0, Math.round(yMax)]} />
+            <CartesianGrid stroke={GRID_COLOR} strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="date" stroke={AXIS_COLOR} tick={{ fontSize: 11 }} />
+            <YAxis stroke={AXIS_COLOR} tick={{ fontSize: 11 }} width={46} domain={[0, Math.round(yMax)]} />
             <Tooltip
               contentStyle={{
-                background: '#171d2c',
-                border: '1px solid #2a3348',
+                background: TOOLTIP_BG,
+                border: `1px solid ${GRID_COLOR}`,
                 borderRadius: 8,
                 fontSize: 12,
               }}
-              labelStyle={{ color: '#93a0bb' }}
+              labelStyle={{ color: AXIS_COLOR }}
               formatter={(value) => [`${Number(value).toFixed(1)} ppm`, 'Average']}
             />
+            <Legend wrapperStyle={{ fontSize: 12, color: AXIS_COLOR }} />
             {thresholds !== null && (
               <ReferenceLine
                 y={thresholds.warning}
@@ -104,7 +122,7 @@ export default function WeeklyAnalytics({ days, thresholds, error }) {
                 }}
               />
             )}
-            <Bar dataKey="avg" fill="#4f9dff" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="avg" name="7-day average (ppm)" fill={COMPARISON_BAR_COLOR} radius={[4, 4, 0, 0]} isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
       </div>

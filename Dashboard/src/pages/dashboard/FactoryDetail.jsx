@@ -102,7 +102,7 @@ export default function FactoryDetail() {
             <div className="stat-row">
               <div className="card stat-card">
                 <div className="stat-label">Current reading</div>
-                <div className="stat-value" style={{ color: LEVEL_COLOR[level] ?? 'var(--text)' }}>
+                <div className="stat-value mono" style={{ color: LEVEL_COLOR[level] ?? 'var(--text)' }}>
                   {current ? current.co2 : '—'}
                   <span className="stat-unit">ppm</span>
                 </div>

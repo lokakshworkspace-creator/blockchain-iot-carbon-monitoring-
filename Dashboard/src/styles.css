@@ -1,21 +1,32 @@
 /* Dashboard theme. Single stylesheet with CSS custom properties - kept
    deliberately simple (no CSS framework, no CSS-in-JS) since this is a
-   demonstrable prototype and the styling should never be the hard part. */
+   demonstrable prototype and the styling should never be the hard part.
+
+   Dark industrial palette (visual pass on the auth/admin/regional-
+   dashboard/notifications work): near-black backgrounds, a desaturated
+   teal-green primary accent, amber/red reserved for CO2 alert severity
+   specifically. --warning/--critical are used ONLY for genuine
+   threshold-alert semantics (badges, gauge zones, chart reference
+   lines, notification severity) so they stay meaningful; a merely
+   in-progress/not-yet-anchored state uses --pending (a neutral blue)
+   instead of amber - see badge-pending/verdict-pending/conn-connecting
+   below, all switched off --warning for exactly this reason. */
 
 :root {
-  --bg: #0f1420;
-  --bg-panel: #171d2c;
-  --bg-panel-alt: #1d2436;
-  --border: #2a3348;
-  --text: #e6eaf3;
-  --text-dim: #93a0bb;
-  --text-faint: #66739180;
+  --bg: #0b0f0e;
+  --bg-panel: #12181a;
+  --bg-panel-alt: #171f21;
+  --border: #232c2e;
+  --text: #e9eeec;
+  --text-dim: #8fa39c;
+  --text-faint: #5c6b6780;
 
-  --accent: #4f9dff;
-  --info: #4f9dff;
-  --ok: #35d07f;
-  --warning: #f5b23a;
-  --critical: #ff5f6d;
+  --accent: #2fbf8f;
+  --info: #5b8def;
+  --pending: #5b8def;
+  --ok: #2fbf8f;
+  --warning: #f5a623;
+  --critical: #e5484d;
 
   --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
   --sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -158,7 +169,7 @@ body {
 }
 
 .conn-connecting .conn-dot {
-  background: var(--warning);
+  background: var(--pending);
   animation: pulse 1s ease-in-out infinite;
 }
 
@@ -685,11 +696,11 @@ body {
   background: var(--bg-panel-alt);
 }
 .verdict-pending .verdict-icon {
-  background: color-mix(in srgb, var(--warning) 18%, transparent);
-  color: var(--warning);
+  background: color-mix(in srgb, var(--pending) 18%, transparent);
+  color: var(--pending);
 }
 .verdict-pending .verdict-label {
-  color: var(--warning);
+  color: var(--pending);
 }
 
 .verdict-unknown .verdict-icon {
@@ -859,8 +870,8 @@ body {
 }
 
 .badge-pending {
-  background: color-mix(in srgb, var(--warning) 16%, transparent);
-  color: var(--warning);
+  background: color-mix(in srgb, var(--pending) 16%, transparent);
+  color: var(--pending);
 }
 
 /* Pending rows read as "still in flight", not "broken" or "omitted" -
@@ -968,7 +979,9 @@ body {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  /* Subtle border over heavy shadow, per the styling direction - just
+     enough lift to read as a floating panel above the page. */
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   z-index: 40;
   overflow: hidden;
 }
@@ -1053,7 +1066,7 @@ body {
   border-left: 3px solid var(--warning);
   border-radius: 10px;
   padding: 10px 12px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   animation: notif-toast-in 0.18s ease-out;
 }
 
@@ -1177,20 +1190,47 @@ body {
   color: var(--text-dim);
 }
 
-/* --- Login --- */
+/* --- Login: centered card on the dark background, minimal, no clutter --- */
 
 .login-page {
   display: grid;
   place-items: center;
-  min-height: 80vh;
+  min-height: 100vh;
+  background: var(--bg);
 }
 
 .login-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   width: 320px;
-  padding: 28px;
+  padding: 32px;
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 2px;
+}
+
+.login-brand h1 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.login-subtitle {
+  margin: 0 0 6px;
+}
+
+.login-error {
+  padding: 10px 12px;
+  text-align: left;
+  background: color-mix(in srgb, var(--critical) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--critical) 30%, var(--border));
+  border-radius: 8px;
 }
 
 .login-field {
@@ -1244,7 +1284,14 @@ body {
   color: var(--text-dim);
 }
 
-/* --- Regional dashboard --- */
+/* --- Regional dashboard: a hierarchical grid (region section -> factory
+   tiles inside it), not a geographic map. --- */
+
+.region-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
 .factory-grid {
   display: grid;
@@ -1257,6 +1304,7 @@ body {
   flex-direction: column;
   gap: 6px;
   padding: 16px;
+  border-left: 3px solid var(--border);
   text-decoration: none;
   color: var(--text);
   transition: border-color 0.12s;
@@ -1266,6 +1314,54 @@ body {
   border-color: var(--accent);
 }
 
+.factory-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .factory-card-name {
   font-weight: 650;
+}
+
+.factory-card-reading {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* Status dot: color AND the tile's own left-edge accent bar both carry
+   the same signal (see .factory-card-{level} below), so severity is
+   never conveyed by the dot's color alone. */
+.factory-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-dim);
+}
+
+.factory-dot-normal {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+
+.factory-dot-warning {
+  background: var(--warning);
+}
+
+.factory-dot-critical {
+  background: var(--critical);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--critical) 22%, transparent);
+}
+
+.factory-card-normal {
+  border-left-color: var(--ok);
+}
+
+.factory-card-warning {
+  border-left-color: var(--warning);
+}
+
+.factory-card-critical {
+  border-left-color: var(--critical);
 }

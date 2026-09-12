@@ -10,6 +10,10 @@
  * enum values) for notification.severity, which is lowercase
  * ("warning"/"critical") - hence the .toUpperCase() below rather than a
  * third set of badge color rules.
+ *
+ * Severity is never color alone: every badge pairs an icon (▲ warning,
+ * ⛔ critical - shape as well as color, so it still reads correctly for
+ * a color-blind viewer or on a washed-out projector) with the text label.
  */
 
 import { useState } from 'react'
@@ -17,6 +21,7 @@ import { useState } from 'react'
 import { useNotifications } from '../hooks/useNotifications.js'
 
 const SEVERITY_LABEL = { warning: 'WARNING', critical: 'CRITICAL' }
+const SEVERITY_ICON = { warning: '▲', critical: '⛔' }
 
 function formatTime(isoTimestamp) {
   const date = new Date(isoTimestamp)
@@ -24,7 +29,11 @@ function formatTime(isoTimestamp) {
 }
 
 function SeverityBadge({ severity }) {
-  return <span className={`badge badge-${severity.toUpperCase()}`}>{SEVERITY_LABEL[severity] ?? severity}</span>
+  return (
+    <span className={`badge badge-${severity.toUpperCase()}`}>
+      <span aria-hidden="true">{SEVERITY_ICON[severity] ?? ''}</span> {SEVERITY_LABEL[severity] ?? severity}
+    </span>
+  )
 }
 
 function NotificationRow({ notification, onMarkSeen, onAcknowledge }) {
