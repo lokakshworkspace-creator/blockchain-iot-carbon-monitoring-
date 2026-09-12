@@ -10,10 +10,15 @@
 
 import { useEffect, useState } from 'react'
 
+import RecordAnchorFilter from '../components/RecordAnchorFilter.jsx'
 import { useEventStream } from '../context/eventStreamContext.js'
+import { filterByAnchor } from '../lib/records.js'
 import { getRecords } from '../services/api.js'
 
-const RECORDS_LIMIT = 25
+// Pulled up from the GET /records default so anchored records from earlier
+// sessions stay in view even when recent activity is mostly Pending test
+// runs. 200 is the endpoint's own MAX_RECORDS_LIMIT.
+const RECORDS_LIMIT = 200
 
 function truncateHash(hash) {
   if (!hash) return null
@@ -24,6 +29,7 @@ export default function BlockchainLogs() {
   const { events } = useEventStream()
   const [records, setRecords] = useState([])
   const [error, setError] = useState(null)
+  const [filter, setFilter] = useState('all')
 
   // Refetched whenever Pipeline B stores or confirms a reading, so a
   // reading that just anchored moves from "Pending" to its tx hash
@@ -51,6 +57,8 @@ export default function BlockchainLogs() {
 
   const anchoredCount = records.filter((r) => r.blockchain_record_id !== null).length
 
+  const visibleRecords = filterByAnchor(records, filter)
+
   return (
     <div className="page">
       <h1>Blockchain Logs</h1>
@@ -60,6 +68,12 @@ export default function BlockchainLogs() {
       </p>
 
       <section className="section">
+        <RecordAnchorFilter
+          value={filter}
+          onChange={setFilter}
+          visibleCount={visibleRecords.length}
+          totalCount={records.length}
+        />
         <div className="card">
           {error && <div className="empty error-text">{error}</div>}
           {!error && records.length === 0 && (
@@ -68,7 +82,10 @@ export default function BlockchainLogs() {
               <code>python tests/mqtt_test_publisher.py --scenario normal</code>
             </div>
           )}
-          {!error && records.length > 0 && (
+          {!error && records.length > 0 && visibleRecords.length === 0 && (
+            <div className="empty">No {filter === 'anchored' ? 'anchored' : 'pending'} records in view.</div>
+          )}
+          {!error && visibleRecords.length > 0 && (
             <table className="table">
               <thead>
                 <tr>
@@ -81,7 +98,7 @@ export default function BlockchainLogs() {
                 </tr>
               </thead>
               <tbody>
-                {records.map((record) => {
+                {visibleRecords.map((record) => {
                   const anchored = record.blockchain_record_id !== null
                   return (
                     <tr key={record.id} className={anchored ? undefined : 'row-pending'}>

@@ -13,12 +13,17 @@
 
 import { useEffect, useState } from 'react'
 
+import RecordAnchorFilter from '../components/RecordAnchorFilter.jsx'
 import RecordPicker from '../components/RecordPicker.jsx'
 import VerificationResult from '../components/VerificationResult.jsx'
 import { useEventStream } from '../context/eventStreamContext.js'
+import { filterByAnchor } from '../lib/records.js'
 import { getRecords, verifyRecord } from '../services/api.js'
 
-const RECORDS_LIMIT = 20
+// Matches Blockchain Logs: pull enough history that anchored records from
+// earlier sessions stay selectable even when recent rows are all Pending
+// test runs. 200 is the GET /records endpoint's own MAX_RECORDS_LIMIT.
+const RECORDS_LIMIT = 200
 
 export default function Verification() {
   const { events } = useEventStream()
@@ -26,6 +31,7 @@ export default function Verification() {
   const [records, setRecords] = useState([])
   const [recordsError, setRecordsError] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
+  const [filter, setFilter] = useState('all')
 
   const [result, setResult] = useState(null)
   const [pending, setPending] = useState(false)
@@ -70,6 +76,9 @@ export default function Verification() {
     }
   }
 
+  // Filter is display-only over data already fetched; the selected-record
+  // lookup stays against the full list so a selection survives toggling.
+  const visibleRecords = filterByAnchor(records, filter)
   const selectedRecord = records.find((r) => r.id === selectedId) ?? null
 
   return (
@@ -82,8 +91,23 @@ export default function Verification() {
 
       <section className="section">
         <h2>Select a record</h2>
+        <RecordAnchorFilter
+          value={filter}
+          onChange={setFilter}
+          visibleCount={visibleRecords.length}
+          totalCount={records.length}
+        />
         <div className="card">
-          <RecordPicker records={records} selectedId={selectedId} onSelect={setSelectedId} error={recordsError} />
+          {!recordsError && records.length > 0 && visibleRecords.length === 0 ? (
+            <div className="empty">No {filter === 'anchored' ? 'anchored' : 'pending'} records in view.</div>
+          ) : (
+            <RecordPicker
+              records={visibleRecords}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              error={recordsError}
+            />
+          )}
         </div>
       </section>
 
