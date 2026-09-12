@@ -34,3 +34,17 @@
 // 2, 4, 12-15, 25-27), which the WiFi radio can make unreliable to read
 // - confirmed during Phase 1 planning specifically to avoid that conflict.
 #define MQ135_PIN 34
+
+// --- Buzzer alarm output ---
+// GPIO25: a plain general-purpose digital output. Not a strapping pin
+// (0/2/5/12/15, which must be in a specific state at boot) and not one
+// of the input-only ADC pins (34-39, where MQ135_PIN already sits) - no
+// conflict with the MQ135 wiring, and no boot-sequence or WiFi-radio
+// interaction to worry about the way there is for an analog input pin.
+//
+// See buzzer_alarm.h for the alarm threshold/debounce logic - this is
+// only the pin assignment. Assumes an ACTIVE buzzer module (sounds on a
+// plain digital HIGH, has its own internal oscillator). If wiring a
+// PASSIVE buzzer instead, swap buzzer_alarm.h's digitalWrite(buzzerPin,
+// HIGH/LOW) calls for tone(BUZZER_PIN, <frequency>)/noTone(BUZZER_PIN).
+#define BUZZER_PIN 25

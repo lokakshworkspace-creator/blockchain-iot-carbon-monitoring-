@@ -15,10 +15,19 @@ note at the bottom before trusting anything here on real hardware.
 | AO (analog out) | GPIO34 |
 | DO (digital out) | not connected - unused |
 
+| Buzzer pin | ESP32 pin |
+|---|---|
+| + (signal) | GPIO25 |
+| - (GND) | GND |
+
 GPIO34 is an ADC1, input-only pin. ADC1 stays usable while WiFi is
 active, unlike ADC2 pins (GPIO0, 2, 4, 12-15, 25-27), which the WiFi
 radio can make unreliable to read from - this was confirmed during
 Phase 1 planning specifically to avoid that conflict.
+
+GPIO25 is a plain digital output with no such constraint - it's not a
+strapping pin and not one of the input-only ADC pins GPIO34 already
+occupies, so it doesn't interact with either the MQ135 wiring or WiFi.
 
 MQ135_VCC in `mq135_calibration.h` assumes the module is powered from
 3.3V, matching this wiring and the ESP32 ADC's own 3.3V reference. If a
@@ -26,6 +35,37 @@ particular breakout module is ever wired to 5V instead, both that
 constant and the raw ADC readings would need revisiting - and a 5V
 signal risks exceeding the ESP32 ADC pin's safe input range, so don't
 do this without a voltage divider.
+
+## Buzzer alarm
+
+A physical CO2 alarm, entirely local to the device - see
+`buzzer_alarm.h`. Deliberately independent of WiFi/MQTT/the gateway: it
+reads directly off the same `co2Ppm` value the main loop computes every
+cycle, before any network code runs, so it keeps working exactly the
+same whether WiFi is up, down, or was never configured at all.
+
+- Threshold: `CO2_ALARM_THRESHOLD_PPM` in `buzzer_alarm.h`, currently
+  `2000.0f` to mirror `Gateway/.env`'s `CO2_CRITICAL_THRESHOLD`. There is
+  no remote config sync by design (per the project's "no retry
+  frameworks, no remote config systems" stance) - if the backend's
+  critical threshold is ever changed, update this constant by hand to
+  match and reflash.
+- Debounce: the buzzer needs `CO2_ALARM_TRIGGER_READINGS` (default 3)
+  consecutive above-threshold readings before it ever sounds, and
+  `CO2_ALARM_CLEAR_READINGS` (default 3) consecutive below-threshold
+  readings before it goes silent again - at the default 20s publish
+  interval, that's roughly a minute of sustained readings in either
+  direction, not a single noisy sample. `CO2_ALARM_RETRIGGER_COOLDOWN_MS`
+  (default 60s - deliberately longer than the ~40s minimum it takes 3
+  readings to accumulate, or this guard would never actually do anything;
+  see the comment on this constant in `buzzer_alarm.h`) additionally
+  keeps it from re-sounding immediately after going silent, so a CO2
+  level hovering right at the threshold can't chatter the buzzer on and
+  off.
+- Assumes an **active** buzzer module (sounds on a plain digital HIGH). If
+  wiring a passive buzzer instead, see `config.example.h`'s `BUZZER_PIN`
+  comment for the one-line swap (`tone()`/`noTone()` instead of
+  `digitalWrite()`).
 
 ## Required libraries (Arduino IDE)
 
@@ -113,6 +153,21 @@ reading should be a normal-looking number, not `nan`.
   `verify_mq135_calibration_math.py` in this folder - a standalone
   Python reimplementation of the same formulas with known reference
   values, runnable right now with `python ESP32/verify_mq135_calibration_math.py`.
+- The buzzer alarm's debounce/latch/cooldown state machine
+  (`buzzer_alarm.h`) is checked the same way, by
+  `verify_buzzer_alarm_logic.py` - a Python port of `updateBuzzerAlarm()`
+  exercised against 12 scenarios (won't trigger on one noisy reading,
+  triggers on the Nth consecutive reading, a broken streak doesn't
+  accumulate, clears after N consecutive normal readings, the cooldown
+  genuinely blocks an immediate re-trigger and expires correctly, NaN
+  readings never trigger, an exactly-at-threshold reading counts).
+  Writing this test is what caught a real bug before it ever reached a
+  board: the cooldown constant was initially shorter than the minimum
+  time the trigger-reading count can possibly take to accumulate, which
+  would have made it a silent no-op forever - fixed to a value with real
+  headroom above that floor, with the reasoning left as a comment on the
+  constant. Runnable right now with
+  `python ESP32/verify_buzzer_alarm_logic.py`.
 
 **Genuinely untestable until Phase 5's physical bring-up:**
 
@@ -125,3 +180,6 @@ reading should be a normal-looking number, not `nan`.
 - The real R0 constant for any specific physical sensor unit - this
   cannot be determined without the sensor in hand, burned in, and
   calibrated in real clean air.
+- Whether GPIO25 actually drives a real buzzer module the way assumed
+  (active buzzer, sounds on a plain digital HIGH) - untestable without
+  the physical buzzer in hand.

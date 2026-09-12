@@ -6,12 +6,20 @@
 // repeat. No hashing, no blockchain, no heavy logic runs on the device -
 // all of that lives in the Gateway, one layer up.
 //
+// One exception to "everything else lives in the Gateway": a local
+// buzzer alarm (buzzer_alarm.h), by design - it's the physical demo
+// alarm, and it must keep working when WiFi/MQTT/the gateway are down,
+// which is only possible if it never depends on any of them. See
+// updateBuzzerAlarm()'s call site in loop() below for exactly where it
+// sits relative to the network-dependent code.
+//
 // Requires config.h (copy config.example.h and fill in real values - see
 // README.md) and mq135_calibration.h (see that file for the CO2 math and
 // the mandatory R0 calibration step before readings mean anything).
 
 #include "config.h"
 #include "mq135_calibration.h"
+#include "buzzer_alarm.h"
 
 #include <WiFi.h>
 
@@ -106,6 +114,9 @@ void setup() {
 
   pinMode(MQ135_PIN, INPUT);
 
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);  // silent until a real reading says otherwise
+
   WiFi.mode(WIFI_STA);
   ensureWiFiConnected();
 
@@ -137,6 +148,13 @@ void loop() {
 
   int rawAdc = analogRead(MQ135_PIN);
   float co2Ppm = mq135ReadPpm(rawAdc);
+
+  // Buzzer alarm: called unconditionally, before anything below that
+  // touches WiFi/MQTT, and does not read mqttClient.connected() or any
+  // other network state - this is what "must work even if the network
+  // is down" actually means in code, not just in the comment above it.
+  updateBuzzerAlarm(BUZZER_PIN, co2Ppm);
+
   String timestamp = currentIsoTimestamp();
 
   // Exactly three fields, matching Gateway/mqtt_client.py's
