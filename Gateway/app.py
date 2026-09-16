@@ -9,10 +9,10 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from auth import authenticate_user, create_access_token
+from auth import CurrentUser, authenticate_user, create_access_token, get_current_user, hash_password, verify_password
 from blockchain import client as blockchain_client
 from config import settings
 from database import (
@@ -20,15 +20,19 @@ from database import (
     create_notification,
     get_factory_and_region_for_device,
     get_recent_records,
+    get_user_by_username,
     insert_sensor_record,
     mark_notification_delivered,
     touch_last_login,
     update_blockchain_info,
+    update_user,
 )
 from device_status import tracker as device_status_tracker
 from events import Event, EventType, Severity, build_event
 from hashing import generate_hash
 from models import (
+    ChangePasswordRequest,
+    ChangePasswordResponse,
     DeviceStatusItem,
     HealthResponse,
     LoginRequest,
@@ -338,6 +342,46 @@ async def login(credentials: LoginRequest) -> dict:
         "role": user["role"],
         "region_id": user.get("region_id"),
     }
+
+
+@app.post("/api/auth/change-password", response_model=ChangePasswordResponse)
+async def change_password(
+    body: ChangePasswordRequest, current_user: CurrentUser = Depends(get_current_user)
+) -> dict:
+    """Self-service password change for any logged-in user (admin or
+    regional_head) - available via get_current_user's plain "any role"
+    dependency, not require_role(). Always targets the caller's own
+    account: current_user comes from their own JWT, and body has no
+    user_id field for them to target anyone else's.
+
+    current_password is checked against the real stored hash via the same
+    verify_password() login itself uses - it is never trusted just
+    because the client claims to know it. new_password's minimum length
+    is enforced by ChangePasswordRequest (models.py) at the request-body
+    validation level, before this function body ever runs, so an
+    empty/too-short new_password never reaches here.
+
+    On success, only password_hash is written (see database.update_user) -
+    no new token is issued, matching the brief: the caller's existing
+    token stays valid until it naturally expires.
+
+    A wrong current_password is rejected with 400, deliberately not 401:
+    the caller's bearer token is perfectly valid here (get_current_user
+    already accepted it above) - what's wrong is one field in the request
+    body, the same category of error as any other bad input. 401 is
+    reserved for "your token itself is missing/invalid/expired", which
+    Dashboard/src/services/api.js's global interceptor treats as "the
+    session is over, log out and redirect to /login" (see its
+    onUnauthorized()/UNAUTHORIZED_EVENT). Using 401 here was tried and
+    caught by testing the real form in a real browser: it silently logged
+    the user out on a mistyped current password, which is exactly the
+    wrong behavior for a field-level input error."""
+    user = await get_user_by_username(current_user.username)
+    if user is None or not verify_password(body.current_password, user["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+
+    await update_user(user["_id"], {"password_hash": hash_password(body.new_password)})
+    return {"success": True}
 
 
 @app.get("/health", response_model=HealthResponse)

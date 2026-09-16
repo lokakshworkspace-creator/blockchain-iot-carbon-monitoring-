@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
@@ -105,6 +105,33 @@ class LoginResponse(BaseModel):
     expires_in_hours: int
     role: str
     region_id: str | None
+
+
+# Minimum length for a new password set via POST /api/auth/change-password.
+# No such minimum existed anywhere before this - AdminUserCreate.password
+# (an admin setting a regional_head's initial password) is intentionally
+# left as-is rather than retrofitting this onto it, since that's a
+# separate, out-of-scope endpoint.
+CHANGE_PASSWORD_MIN_LENGTH = 8
+
+
+class ChangePasswordRequest(BaseModel):
+    """POST /api/auth/change-password request body - see app.py's
+    change_password(). Deliberately has no user_id field: the account to
+    change is always the caller's own, taken from their JWT via
+    get_current_user, never from anything the client sends - so there is
+    no way to construct a request that changes someone else's password."""
+
+    current_password: str
+    new_password: str = Field(min_length=CHANGE_PASSWORD_MIN_LENGTH)
+
+
+class ChangePasswordResponse(BaseModel):
+    """POST /api/auth/change-password - a plain success acknowledgement.
+    No new token is issued; per the brief, the caller's existing one stays
+    valid until it naturally expires rather than being reissued here."""
+
+    success: bool = True
 
 
 # --- Phase 2: regions/factories/devices/users admin CRUD + region-scoped reads ---

@@ -296,3 +296,19 @@ export function adminUpdateUser(userId, { regionId, isActive } = {}) {
     body: JSON.stringify(body),
   })
 }
+
+/**
+ * POST /api/auth/change-password -> { success: true }. Self-service,
+ * always targets the caller's own account - the gateway identifies who
+ * that is from the bearer token _authHeaders() already attaches, same as
+ * every other authed call here, so there is no userId parameter. Does
+ * not touch the stored token: per Gateway/app.py's change_password(), the
+ * caller's existing session stays valid, no re-login required.
+ */
+export function changePassword(currentPassword, newPassword) {
+  return _request('/api/auth/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  })
+}

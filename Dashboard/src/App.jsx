@@ -34,6 +34,7 @@ import AdminRegions from './pages/admin/AdminRegions.jsx'
 import AdminSystemHealth from './pages/admin/AdminSystemHealth.jsx'
 import AdminUsers from './pages/admin/AdminUsers.jsx'
 import BlockchainLogs from './pages/BlockchainLogs.jsx'
+import ChangePassword from './pages/ChangePassword.jsx'
 import FactoryDetail from './pages/dashboard/FactoryDetail.jsx'
 import RegionalDashboard from './pages/dashboard/RegionalDashboard.jsx'
 import Login from './pages/Login.jsx'
@@ -85,6 +86,10 @@ function AuthNav() {
       {/* Admin can view the Regional Head dashboard too, per the brief. */}
       <NavLink to="/dashboard" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
         {user.role === 'admin' ? 'Regional Dashboard' : 'Dashboard'}
+      </NavLink>
+      {/* Self-service, available to both roles - see ChangePassword.jsx. */}
+      <NavLink to="/change-password" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
+        Change Password
       </NavLink>
       <button type="button" className="nav-link nav-logout" onClick={logout}>
         Log out ({user.username})
@@ -142,6 +147,7 @@ function Shell() {
             <Route path="/verification" element={<Verification />} />
             <Route path="/blockchain" element={<BlockchainLogs />} />
             <Route path="/system" element={<SystemMonitor />} />
+            <Route path="/change-password" element={<ChangePassword />} />
           </Route>
 
           <Route
