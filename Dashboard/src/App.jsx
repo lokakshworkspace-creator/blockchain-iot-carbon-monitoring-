@@ -3,14 +3,18 @@
  * gateway-connection indicator in the header so it is always obvious
  * whether what you are looking at is live or stale.
  *
- * Phase 7 adds real auth (login, role-aware routing, an admin panel, a
- * Regional Head dashboard) alongside the original five pages - it does
- * NOT replace or gate them. Those five (Overview, Real-Time Data,
- * Verification, Blockchain Logs, System Monitor) predate the RBAC work,
- * have no role concept, and stay exactly as they were: unauthenticated,
- * reachable at their existing paths. /login renders outside the sidebar
- * shell (a login screen showing nav links to pages behind auth would be
- * confusing); everything else, old and new, renders inside it.
+ * The whole site is now login-gated: visiting "/" with no session goes to
+ * /login, and with a session goes straight to the caller's role landing
+ * page (/admin or /dashboard) - see RootRedirect below. This is a
+ * deliberate reversal of the original Phase 7 decision to leave the five
+ * original pages (Overview, Real-Time Data, Verification, Blockchain
+ * Logs, System Monitor) public; they now sit behind the same RequireAuth
+ * guard as everything else (any authenticated role), just without a role
+ * restriction narrower than "logged in". Their own components are
+ * untouched - only the routing around them changed, including moving
+ * Overview off "/" to "/overview" since "/" is now a pure redirect route.
+ * /login still renders outside the sidebar shell; everything else, old
+ * and new, renders inside it.
  *
  * Routing is client-side only (react-router-dom); the gateway serves no
  * HTML, it only serves the REST + WebSocket API this app consumes.
@@ -38,14 +42,25 @@ import RealTimeData from './pages/RealTimeData.jsx'
 import SystemMonitor from './pages/SystemMonitor.jsx'
 import Verification from './pages/Verification.jsx'
 
-// Unchanged since before the RBAC work - see the module docstring.
+// Overview moved from "/" to "/overview" - see the module docstring.
 const NAV_ITEMS = [
-  { to: '/', label: 'Overview', end: true },
+  { to: '/overview', label: 'Overview' },
   { to: '/realtime', label: 'Real-Time Data' },
   { to: '/verification', label: 'Verification' },
   { to: '/blockchain', label: 'Blockchain Logs' },
   { to: '/system', label: 'System Monitor' },
 ]
+
+// "/" is a pure redirect gate, same logic RequireAuth uses when a logged-in
+// user's role doesn't match a route: no session -> /login, otherwise the
+// caller's own role landing page. It never renders content itself.
+function RootRedirect() {
+  const { user } = useAuth()
+  if (!user) {
+    return <Navigate to="/login" replace />
+  }
+  return <Navigate to={user.role === 'admin' ? '/admin' : '/dashboard'} replace />
+}
 
 function AuthNav() {
   const { user, logout } = useAuth()
@@ -113,11 +128,21 @@ function Shell() {
 
       <main className="content">
         <Routes>
-          <Route path="/" element={<Overview />} />
-          <Route path="/realtime" element={<RealTimeData />} />
-          <Route path="/verification" element={<Verification />} />
-          <Route path="/blockchain" element={<BlockchainLogs />} />
-          <Route path="/system" element={<SystemMonitor />} />
+          <Route path="/" element={<RootRedirect />} />
+
+          <Route
+            element={
+              <RequireAuth roles={['admin', 'regional_head']}>
+                <Outlet />
+              </RequireAuth>
+            }
+          >
+            <Route path="/overview" element={<Overview />} />
+            <Route path="/realtime" element={<RealTimeData />} />
+            <Route path="/verification" element={<Verification />} />
+            <Route path="/blockchain" element={<BlockchainLogs />} />
+            <Route path="/system" element={<SystemMonitor />} />
+          </Route>
 
           <Route
             path="/admin"
