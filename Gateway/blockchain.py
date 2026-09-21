@@ -41,6 +41,12 @@ class BlockchainClient:
         self._account: Any = None
         self._nonce: int | None = None
         self._nonce_lock = threading.Lock()
+        # Caps how many Pipeline B submissions (send + receipt-wait) run at
+        # once, rather than every concurrently-arriving MQTT message firing
+        # its own unbounded submit-and-poll cycle - see store_hash()'s
+        # docstring and _store_hash_sync's poll_latency comment for the
+        # rate-limiting this was found to cause.
+        self._submission_semaphore = asyncio.Semaphore(3)
         self._ready = False
 
     def start(self) -> None:
@@ -85,10 +91,21 @@ class BlockchainClient:
         receipt, and returns {tx_hash, block_number, status, record_id}.
         record_id comes from decoding the HashStored event in the receipt,
         since a mined transaction's return value isn't otherwise readable.
+
+        At most 3 submissions run concurrently (self._submission_semaphore):
+        a live-demo investigation found that every Pipeline B call
+        submitting and then independently polling for its own receipt
+        compounded into enough steady-state RPC volume (each poll loop
+        alone runs up to 10x/second by default - see _store_hash_sync's
+        poll_latency comment) to rate-limit the RPC endpoint on its own,
+        regardless of how spaced-out the incoming MQTT messages were. A 4th+
+        concurrent submission now queues here instead of adding to that
+        load; the 3 already in flight set the actual pace.
         """
         if not self._ready:
             raise RuntimeError("Blockchain client is not ready (see startup logs)")
-        return await asyncio.to_thread(self._store_hash_sync, hash_hex)
+        async with self._submission_semaphore:
+            return await asyncio.to_thread(self._store_hash_sync, hash_hex)
 
     def _store_hash_sync(self, hash_hex: str) -> dict:
         hash_bytes = bytes.fromhex(hash_hex)
@@ -133,7 +150,17 @@ class BlockchainClient:
         # back the nonce above: the transaction was genuinely broadcast,
         # so that nonce is correctly consumed on-chain regardless of
         # whether we ever observe its receipt.
-        receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
+        #
+        # poll_latency=2.0 (web3.py's default is 0.1s): a live-demo
+        # investigation found the default polls eth_getTransactionReceipt
+        # up to 10x/second, per in-flight transaction, for up to this
+        # entire 300s timeout - with several transactions polling
+        # concurrently, that steady-state background load was on its own
+        # enough to rate-limit the RPC endpoint, independent of how
+        # spaced-out new submissions were. 2s cuts that polling volume by
+        # ~20x; store_hash()'s semaphore additionally caps how many of
+        # these loops can even run at once.
+        receipt = self._w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300, poll_latency=2.0)
 
         events = self._contract.events.HashStored().process_receipt(receipt)
         record_id = events[0]["args"]["recordId"] if events else None
